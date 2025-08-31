@@ -1,0 +1,86 @@
+{
+  "testRun": {
+    "timestamp": "2025-08-31T16:03:49.786Z",
+    "duration": "8s",
+    "env": {
+      "node": "v24.6.0",
+      "platform": "win32",
+      "arch": "x64"
+    }
+  },
+  "summary": {
+    "unit": {
+      "passed": 0,
+      "failed": 4,
+      "details": [
+        {
+          "category": "LLM",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/llm/**/*.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/llm/**/*.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "category": "Clients",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/clients/**/*.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/clients/**/*.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "category": "Utils",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/utils/**/*.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/utils/**/*.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "category": "Bot",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/bot/**/*.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/bot/**/*.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        }
+      ]
+    },
+    "integration": {
+      "passed": 0,
+      "failed": 3,
+      "details": [
+        {
+          "test": "Message Pipeline",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/integration/message-pipeline.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/integration/message-pipeline.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "test": "Complete System",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/integration/complete-system.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/integration/complete-system.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "test": "Service Integration",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/integration/service-integration.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/integration/service-integration.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        }
+      ]
+    },
+    "performance": {
+      "passed": 0,
+      "failed": 3,
+      "details": [
+        {
+          "test": "Response Time",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/performance/response-times.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/performance/response-times.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "test": "Memory Usage",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/performance/memory-usage.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/performance/memory-usage.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        },
+        {
+          "test": "Concurrency",
+          "status": "failed",
+          "error": "Command failed: npx vitest run \"tests/performance/concurrency.test.*\"\n\u001b[31mNo test files found, exiting with code 1\n\u001b[39m\n\u001b[2mfilter: \u001b[22m\u001b[33mtests/performance/concurrency.test.*\u001b[39m\n\u001b[2minclude: \u001b[22m\u001b[33msrc/tests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.ts\u001b[2m, \u001b[22mtests/**/*.test.js\u001b[39m\n\u001b[2mexclude:  \u001b[22m\u001b[33m**/node_modules/**\u001b[2m, \u001b[22m**/dist/**\u001b[2m, \u001b[22m**/cypress/**\u001b[2m, \u001b[22m**/.{idea,git,cache,output,temp}/**\u001b[2m, \u001b[22m**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*\u001b[39m\n\n"
+        }
+      ]
+    },
+    "coverage": {
+      "total": 0,
+      "covered": 0,
+      "percentage": 0
+    }
+  }
+}

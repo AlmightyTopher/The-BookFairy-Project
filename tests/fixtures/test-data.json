@@ -1,0 +1,330 @@
+{
+  "book_corpus": {
+    "popular_titles": [
+      {
+        "title": "Dune",
+        "author": "Frank Herbert",
+        "genre": "Science Fiction",
+        "series": "Dune Chronicles",
+        "isbn": "9780441172719",
+        "year": "1965",
+        "format": "audiobook",
+        "expected_intent": "FIND_BY_TITLE",
+        "confidence_threshold": 0.95
+      },
+      {
+        "title": "The Name of the Wind",
+        "author": "Patrick Rothfuss", 
+        "genre": "Fantasy",
+        "series": "The Kingkiller Chronicle",
+        "isbn": "9780756404079",
+        "year": "2007",
+        "format": "audiobook",
+        "expected_intent": "FIND_BY_TITLE",
+        "confidence_threshold": 0.95
+      },
+      {
+        "title": "Project Hail Mary",
+        "author": "Andy Weir",
+        "genre": "Science Fiction",
+        "isbn": "9780593135204",
+        "year": "2021",
+        "format": "audiobook",
+        "expected_intent": "FIND_BY_TITLE",
+        "confidence_threshold": 0.95
+      },
+      {
+        "title": "The Way of Kings",
+        "author": "Brandon Sanderson",
+        "genre": "Epic Fantasy",
+        "series": "The Stormlight Archive",
+        "isbn": "9780765326355",
+        "year": "2010", 
+        "format": "audiobook",
+        "expected_intent": "FIND_BY_TITLE",
+        "confidence_threshold": 0.95
+      }
+    ],
+    "author_searches": [
+      {
+        "query": "more books by Brandon Sanderson",
+        "author": "Brandon Sanderson",
+        "expected_intent": "GET_AUTHOR_MORE",
+        "confidence_threshold": 0.9,
+        "expected_books": [
+          "The Way of Kings",
+          "Words of Radiance",
+          "Oathbringer",
+          "Mistborn: The Final Empire"
+        ]
+      },
+      {
+        "query": "find other Isaac Asimov books",
+        "author": "Isaac Asimov",
+        "expected_intent": "GET_AUTHOR_MORE", 
+        "confidence_threshold": 0.85,
+        "expected_books": [
+          "Foundation",
+          "I, Robot",
+          "The Caves of Steel"
+        ]
+      }
+    ],
+    "similarity_searches": [
+      {
+        "query": "find me something similar to Dune",
+        "seed_book": {
+          "title": "Dune",
+          "author": "Frank Herbert"
+        },
+        "expected_intent": "FIND_SIMILAR",
+        "confidence_threshold": 0.8,
+        "expected_recommendations": [
+          {
+            "title": "Foundation",
+            "author": "Isaac Asimov",
+            "similarity_reasons": ["epic sci-fi scope", "galactic empire"]
+          },
+          {
+            "title": "Hyperion",
+            "author": "Dan Simmons", 
+            "similarity_reasons": ["complex world-building", "philosophical themes"]
+          }
+        ]
+      },
+      {
+        "query": "books like The Expanse series",
+        "seed_book": {
+          "title": "Leviathan Wakes",
+          "author": "James S.A. Corey"
+        },
+        "expected_intent": "FIND_SIMILAR",
+        "confidence_threshold": 0.8,
+        "expected_recommendations": [
+          {
+            "title": "Old Man's War",
+            "author": "John Scalzi",
+            "similarity_reasons": ["space warfare", "military sci-fi"]
+          }
+        ]
+      }
+    ],
+    "edge_cases": [
+      {
+        "query": "find teh hobitt by tolkien",
+        "corrected_query": "find the hobbit by tolkien",
+        "title": "The Hobbit",
+        "author": "J.R.R. Tolkien",
+        "expected_intent": "FIND_BY_TITLE",
+        "spell_corrections": ["teh -> the", "hobitt -> hobbit"],
+        "confidence_threshold": 0.9
+      },
+      {
+        "query": "foundation by asimov",
+        "title": "Foundation",
+        "author": "Isaac Asimov",
+        "expected_intent": "FIND_BY_TITLE",
+        "case_sensitivity": "lowercase author",
+        "confidence_threshold": 0.95
+      },
+      {
+        "query": "book 1 of expanse",
+        "title": "Leviathan Wakes",
+        "author": "James S.A. Corey",
+        "expected_intent": "FIND_BY_METADATA",
+        "series_reference": true,
+        "confidence_threshold": 0.7
+      }
+    ],
+    "metadata_searches": [
+      {
+        "query": "recommend me some dark fantasy books",
+        "genre": "Dark Fantasy",
+        "expected_intent": "FIND_BY_METADATA",
+        "confidence_threshold": 0.7,
+        "expected_themes": ["dark magic", "gothic", "horror elements"]
+      },
+      {
+        "query": "I want something epic and long",
+        "descriptors": ["epic", "long"],
+        "expected_intent": "FIND_BY_METADATA",
+        "confidence_threshold": 0.6,
+        "expected_filters": ["high page count", "epic fantasy"]
+      }
+    ]
+  },
+  "mock_responses": {
+    "prowlarr_results": [
+      {
+        "guid": "12345-dune-herbert",
+        "title": "Dune by Frank Herbert [M4B] [Audiobook]",
+        "size": 487654321,
+        "downloadUrl": "magnet:?xt=urn:btih:example1",
+        "seeders": 45,
+        "leechers": 3,
+        "publishDate": "2023-01-15T10:30:00Z",
+        "indexerId": 1,
+        "category": "Audiobooks"
+      },
+      {
+        "guid": "67890-dune-herbert-mp3",
+        "title": "Frank Herbert - Dune (Unabridged) [MP3]",
+        "size": 423876543,
+        "downloadUrl": "magnet:?xt=urn:btih:example2",
+        "seeders": 23,
+        "leechers": 7,
+        "publishDate": "2023-01-10T14:20:00Z",
+        "indexerId": 1,
+        "category": "Audiobooks"
+      }
+    ],
+    "readarr_books": [
+      {
+        "id": 1,
+        "title": "Dune",
+        "authorName": "Frank Herbert",
+        "isbn": "9780441172719",
+        "publishedDate": "1965-01-01",
+        "genres": ["Science Fiction"],
+        "overview": "Set on the desert planet Arrakis...",
+        "monitored": true,
+        "qualityProfileId": 1,
+        "metadataProfileId": 1
+      }
+    ],
+    "ollama_intent_responses": {
+      "valid_response": {
+        "model": "qwen3:4b",
+        "response": "{\n  \"intent\": \"FIND_BY_TITLE\",\n  \"confidence\": 0.95,\n  \"seed_book\": {\n    \"title\": \"Dune\",\n    \"author\": \"Frank Herbert\",\n    \"genre\": \"Science Fiction\"\n  }\n}",
+        "done": true,
+        "created_at": "2023-01-01T12:00:00Z"
+      },
+      "malformed_json": {
+        "model": "qwen3:4b", 
+        "response": "{ intent: 'FIND_BY_TITLE', confidence: 0.9, title: 'Dune' }",
+        "done": true,
+        "created_at": "2023-01-01T12:00:00Z"
+      },
+      "low_confidence": {
+        "model": "qwen3:4b",
+        "response": "{\n  \"intent\": \"UNKNOWN\",\n  \"confidence\": 0.3\n}",
+        "done": true,
+        "created_at": "2023-01-01T12:00:00Z"
+      }
+    }
+  },
+  "test_scenarios": {
+    "happy_path": [
+      {
+        "name": "Successful book search and download",
+        "user_input": "find Dune by Frank Herbert",
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_success", 
+          "readarr_search_success",
+          "prowlarr_search_success",
+          "qbittorrent_add_success",
+          "user_notification_sent"
+        ],
+        "expected_response_type": "success_with_download"
+      },
+      {
+        "name": "Similar book recommendations",
+        "user_input": "find me something like Dune",
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_success",
+          "similarity_engine_success",
+          "recommendations_formatted",
+          "user_notification_sent"
+        ],
+        "expected_response_type": "recommendations_list"
+      }
+    ],
+    "error_handling": [
+      {
+        "name": "LLM service unavailable",
+        "user_input": "find Foundation by Asimov",
+        "mock_failures": ["ollama_timeout"],
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_failure",
+          "rule_parser_fallback_success",
+          "search_proceeds_normally"
+        ],
+        "expected_response_type": "success_with_fallback"
+      },
+      {
+        "name": "No search results found",
+        "user_input": "find some completely unknown book title",
+        "mock_failures": ["prowlarr_empty_results"],
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_success",
+          "search_returns_empty",
+          "helpful_error_message"
+        ],
+        "expected_response_type": "no_results_error"
+      },
+      {
+        "name": "All external services down",
+        "user_input": "find any book",
+        "mock_failures": ["readarr_down", "prowlarr_down", "qbittorrent_down"],
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_success",
+          "all_searches_fail",
+          "graceful_degradation_message"
+        ],
+        "expected_response_type": "service_unavailable_error"
+      }
+    ],
+    "edge_cases": [
+      {
+        "name": "Heavy spell correction needed",
+        "user_input": "fnd teh nameof teh wynd by patrik rothfus",
+        "expected_corrections": [
+          "fnd -> find",
+          "teh -> the", 
+          "nameof -> name of",
+          "wynd -> wind",
+          "patrik -> patrick",
+          "rothfus -> rothfuss"
+        ],
+        "expected_flow": [
+          "spell_check_major_corrections",
+          "intent_classification_success",
+          "search_proceeds_normally"
+        ]
+      },
+      {
+        "name": "Ambiguous query requiring clarification",
+        "user_input": "I want something good",
+        "expected_flow": [
+          "spell_check_pass",
+          "intent_classification_low_confidence",
+          "clarification_request_sent"
+        ],
+        "expected_response_type": "clarification_needed"
+      }
+    ]
+  },
+  "performance_benchmarks": {
+    "response_times": {
+      "spell_check": "< 100ms",
+      "intent_classification": "< 5000ms", 
+      "search_operations": "< 3000ms",
+      "total_workflow": "< 60000ms"
+    },
+    "memory_usage": {
+      "baseline": "< 100MB",
+      "peak_operation": "< 200MB",
+      "after_gc": "< 120MB"
+    },
+    "throughput": {
+      "concurrent_users": 5,
+      "requests_per_minute": 10,
+      "max_queue_depth": 20
+    }
+  }
+}

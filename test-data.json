@@ -1,0 +1,17 @@
+{
+  "book_corpus": {
+    "popular_titles": ["Dune", "The Expanse", "Harry Potter"]
+  },
+  "mock_responses": {
+    "prowlarr_results": [
+      {
+        "guid": "123",
+        "title": "Dune by Frank Herbert M4B",
+        "size": 500000000,
+        "downloadUrl": "http://example.com/dune",
+        "seeders": 10,
+        "indexerId": 1
+      }
+    ]
+  }
+}

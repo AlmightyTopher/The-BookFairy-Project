@@ -1,0 +1,6 @@
+- seed: "Dune"
+  expect: ["Hyperion","Empire of Silence","Foundation","Children of Time"]
+- seed: "Goodnight Moon"
+  expect: ["Brown Bear, Brown Bear, What Do You See?","The Very Hungry Caterpillar","Where the Wild Things Are"]
+- seed: "Linear Algebra Done Right"
+  expect: ["Linear Algebra","Introduction to Linear Algebra","Matrix Analysis"]
