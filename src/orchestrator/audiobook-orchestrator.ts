@@ -1,4 +1,3 @@
-import { classifyIntent } from '../llm/intent-classifier';
 import { parseWithRules } from '../llm/rule-parser';
 import { searchReadarr, addBookToReadarr } from '../clients/readarr-client';
 import { searchProwlarr } from '../clients/prowlarr-client';
@@ -7,7 +6,6 @@ import { logger } from '../utils/logger';
 import { SpellChecker } from '../utils/spell-checker';
 import { HealthStatus, AudiobookRequest } from '../types/schemas';
 import { BookFairyResponseT } from '../schemas/book_fairy_response.schema';
-import { checkOllamaHealth } from '../llm/ollama-client';
 import { BookSimilarityEngine, SimilarityMatch, BookProfile } from '../utils/book-similarity';
 import { ReadarrBook, ReadarrSearchResult } from '../types/readarr';
 import { checkReadarrHealth } from '../clients/readarr-client';
@@ -16,7 +14,7 @@ import { checkQbittorrentHealth } from '../clients/qbittorrent-client';
 
 export class AudiobookOrchestrator {
   async handleRequest(query: string) {
-    logger.info({ query }, 'Processing request through LLM');
+    logger.info({ query }, 'Processing request using rule-based parsing (LLM-free)');
     
     // Quick check for "similar to" patterns before going to LLM
     if (query.match(/(?:similar|like)\s+(?:to\s+)?/i)) {
@@ -34,7 +32,13 @@ export class AudiobookOrchestrator {
     const simpleSearchMatch = query.match(/^(?:find|get|search for|download|look for)\s+(.+?)(?:\s+by\s+(.+?))?$/i);
     if (simpleSearchMatch) {
       let title = simpleSearchMatch[1].trim();
-      const author = simpleSearchMatch[2]?.trim();
+      let author = simpleSearchMatch[2]?.trim();
+      
+      // Handle "books with title X" pattern - extract just the title
+      const titleMatch = title.match(/^(?:books?|audiobooks?)\s+(?:with\s+)?title\s+(.+)$/i);
+      if (titleMatch) {
+        title = titleMatch[1].trim();
+      }
       
       // Apply spell corrections for common book titles
       const originalTitle = title;
@@ -43,6 +47,14 @@ export class AudiobookOrchestrator {
       // Log if significant corrections were made
       if (SpellChecker.wasSignificantCorrection(originalTitle, title)) {
         logger.info({ originalTitle, correctedTitle: title }, 'Applied intelligent spell correction');
+      }
+      
+      // Handle "books by author X" pattern - user wants to search by author, not title "books"
+      if ((originalTitle.toLowerCase().match(/^(?:books?|audiobooks?)$/) || title.toLowerCase().match(/^(?:books?|audiobooks?)$/)) 
+          && author?.toLowerCase().startsWith('author ')) {
+        // This is an author search, not a title search
+        title = ''; // Empty title means search by author only
+        author = author.substring(7).trim(); // Remove "author " prefix
       }
       
       // If no author specified, try to intelligently extract from common book titles
@@ -76,22 +88,17 @@ export class AudiobookOrchestrator {
       
       logger.info({ title, author: finalAuthor }, 'Using fast path for simple search pattern');
       return this.processAudiobookRequest({
-        title,
+        title: title || '', // Allow empty title for author-only searches
         author: finalAuthor,
         format: 'audiobook',
         language: 'en',
         quality: 'any'
       });
     }
-    
-    let intent;
-    try {
-      intent = await classifyIntent(query);
-      logger.info({ intent }, 'Classified intent');
-    } catch (error) {
-      logger.error({ error }, 'LLM intent classification failed, falling back to rules');
-      intent = parseWithRules(query);
-    }
+
+    // Use rule-based parsing for all intent classification (no LLM needed)
+    logger.info({ query }, 'Using rule-based parser for all intent classification');
+    const intent = parseWithRules(query);
 
     if (intent.intent === 'search_audiobook') {
       // If we have extracted info with no title but an author, search by author
@@ -288,7 +295,23 @@ export class AudiobookOrchestrator {
   private async processAudiobookRequest(request: any) {
     try {
       logger.info({ request }, 'Searching for audiobook');
-      const searchResult = await searchProwlarr(request.title, {
+      
+      // Check if this is an author-only search
+      const isAuthorSearch = (!request.title || !request.title.trim()) && 
+                           request.author && request.author !== 'Unknown';
+      
+      if (isAuthorSearch) {
+        // Handle author search with Goodreads links instead of torrent searching
+        logger.info({ author: request.author }, 'Processing author search via Goodreads');
+        return this.handleAuthorSearchWithGoodreads(request.author);
+      }
+      
+      // For title searches, proceed with normal torrent searching
+      const searchQuery = request.author && request.author !== 'Unknown' 
+        ? `${request.title} ${request.author}` 
+        : request.title;
+      
+      const searchResult = await searchProwlarr(searchQuery, {
         preferredFormat: 'M4B',
         fallbackToMP3: true,
         language: 'ENG',
@@ -306,7 +329,7 @@ export class AudiobookOrchestrator {
           intent: 'FIND_BY_TITLE' as const,
           confidence: 0.8,
           seed_book: {
-            title: request.title,
+            title: request.title || '',
             author: request.author || '',
             series: '',
             isbn: '',
@@ -335,68 +358,8 @@ export class AudiobookOrchestrator {
         };
       }
 
-      // Show multiple results if found with intelligent author extraction
-      const results = searchResult.results.slice(0, 5).map(result => {
-        // Try to extract author from title
-        let author = 'Unknown';
-        const byMatch = result.title.match(/by\s+([^[]+)/i);
-        if (byMatch) {
-          author = byMatch[1].trim();
-        }
-        
-        return {
-          title: result.title,
-          author: author,
-          genre: 'audiobook',
-          subgenre: '',
-          audience: 'adult',
-          format: 'audiobook',
-          why_similar: `${result.seeders} seeders, ${(result.size / (1024*1024*1024)).toFixed(1)}GB`,
-          similarity_axes: ['format', 'availability']
-        };
-      });
-
-      logger.info({ resultCount: results.length }, 'Formatted results for response');
-
-      const bestMatch = searchResult.results[0];
-      logger.info({ bestMatch: { title: bestMatch.title, seeders: bestMatch.seeders } }, 'Selected best match');
-
-      // Don't auto-download - show options instead
-      const formatInfo = searchResult.format === 'M4B' ? 
-        '(M4B format)' : 
-        '(MP3 format)';
-
-      return {
-        intent: 'FIND_BY_TITLE' as const,
-        confidence: 0.9,
-        seed_book: {
-          title: request.title,
-          author: request.author || '',
-          series: '',
-          isbn: '',
-          publisher: '',
-          year: '',
-          audience: 'adult',
-          format: 'audiobook',
-          genre: '',
-          subgenres: [],
-          themes: [],
-          tone_style: [],
-          notable_features: []
-        },
-        similarity_rules_applied: {
-          matched_axes: ['title', 'format'],
-          min_required_axes: 1
-        },
-        filters: {
-          audience_lock: false,
-          format_lock: true,
-          exclude: []
-        },
-        clarifying_question: '',
-        results: results,
-        post_prompt: `Which one would you like me to download? Just say the number (1-${results.length}) or tell me which specific book you want.`
-      };
+      // Use helper method to format results consistently
+      return this.formatAudiobookResults(searchResult, request, false);
     } catch (error: any) {
       logger.error({ error: error.message, request }, 'Error searching for audiobook');
       return {
@@ -433,29 +396,219 @@ export class AudiobookOrchestrator {
     }
   }
 
+  private formatAudiobookResults(searchResult: any, request: any, isAuthorSearch: boolean = false, page: number = 0) {
+    // Store ALL results, not just first 5
+    const allResults = searchResult.results.map((result: any) => {
+      // Try to extract author from title
+      let author = 'Unknown';
+      const byMatch = result.title.match(/by\s+([^[]+)/i);
+      if (byMatch) {
+        author = byMatch[1].trim();
+      }
+      
+      return {
+        title: result.title,
+        author: author,
+        genre: 'audiobook',
+        subgenre: '',
+        audience: 'adult',
+        format: 'audiobook',
+        why_similar: `${result.seeders} seeders, ${(result.size / (1024*1024*1024)).toFixed(1)}GB`,
+        similarity_axes: ['format', 'availability']
+      };
+    });
+
+    // Pagination logic - show 5 results per page
+    const resultsPerPage = 5;
+    const startIndex = page * resultsPerPage;
+    const endIndex = startIndex + resultsPerPage;
+    const currentPageResults = allResults.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(allResults.length / resultsPerPage);
+    const hasNextPage = page + 1 < totalPages;
+
+    logger.info({ 
+      totalResults: allResults.length, 
+      currentPage: page + 1, 
+      totalPages, 
+      showingResults: currentPageResults.length 
+    }, 'Formatted paginated results');
+
+    const bestMatch = searchResult.results[startIndex];
+    logger.info({ bestMatch: { title: bestMatch.title, seeders: bestMatch.seeders } }, 'Selected best match for current page');
+
+    // Build post prompt with pagination info
+    let postPrompt = '';
+    if (currentPageResults.length > 0) {
+      if (hasNextPage) {
+        postPrompt = `Showing ${startIndex + 1}-${startIndex + currentPageResults.length} of ${allResults.length} results. Say "next" to see more, or pick a number (${startIndex + 1}-${startIndex + currentPageResults.length}) to download.`;
+      } else {
+        postPrompt = `Showing ${startIndex + 1}-${startIndex + currentPageResults.length} of ${allResults.length} results. Pick a number (${startIndex + 1}-${startIndex + currentPageResults.length}) to download.`;
+      }
+    }
+
+    return {
+      intent: 'FIND_BY_TITLE' as const,
+      confidence: 0.9,
+      seed_book: {
+        title: request.title || '',
+        author: request.author || '',
+        series: '',
+        isbn: '',
+        publisher: '',
+        year: '',
+        audience: 'adult',
+        format: 'audiobook',
+        genre: '',
+        subgenres: [],
+        themes: [],
+        tone_style: [],
+        notable_features: []
+      },
+      similarity_rules_applied: {
+        matched_axes: ['title', 'format'],
+        min_required_axes: 1
+      },
+      filters: {
+        audience_lock: false,
+        format_lock: true,
+        exclude: []
+      },
+      clarifying_question: '',
+      results: currentPageResults,
+      allResults: allResults, // Store all results for pagination
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalResults: allResults.length,
+        hasNextPage: hasNextPage
+      },
+      post_prompt: postPrompt
+    };
+  }
+
+  private handleAuthorSearchWithGoodreads(authorName: string) {
+    // Known authors with their Goodreads URLs
+    const knownAuthors: Record<string, { url: string; displayName: string }> = {
+      'bruce sentar': {
+        url: 'https://www.goodreads.com/author/list/19820966.Bruce_Sentar?utf8=✓&sort=original_publication_year',
+        displayName: 'Bruce Sentar'
+      },
+      'anne rice': {
+        url: 'https://www.goodreads.com/author/list/7577.Anne_Rice?utf8=✓&sort=original_publication_year',
+        displayName: 'Anne Rice'
+      },
+      'william d. arand': {
+        url: 'https://www.goodreads.com/author/list/14905104.William_D_Arand?utf8=✓&sort=original_publication_year',
+        displayName: 'William D. Arand'
+      },
+      'will wight': {
+        url: 'https://www.goodreads.com/author/list/7125278.Will_Wight?utf8=✓&sort=original_publication_year',
+        displayName: 'Will Wight'
+      }
+    };
+
+    // Normalize the author name for lookup
+    const normalizedAuthor = authorName.toLowerCase().trim();
+    logger.info({ authorName, normalizedAuthor }, 'Processing Goodreads author search');
+
+    // Check if we have a known author
+    const knownAuthor = knownAuthors[normalizedAuthor];
+    
+    if (knownAuthor) {
+      logger.info({ authorName: knownAuthor.displayName, url: knownAuthor.url }, 'Found exact author match');
+      
+      return {
+        intent: 'AUTHOR_BIBLIOGRAPHY' as const,
+        confidence: 1.0,
+        seed_book: {
+          title: '',
+          author: knownAuthor.displayName,
+          series: '',
+          isbn: '',
+          publisher: '',
+          year: '',
+          audience: 'adult',
+          format: 'bibliography',
+          genre: '',
+          subgenres: [],
+          themes: [],
+          tone_style: [],
+          notable_features: []
+        },
+        similarity_rules_applied: {
+          matched_axes: ['author'],
+          min_required_axes: 1
+        },
+        filters: {
+          audience_lock: false,
+          format_lock: false,
+          exclude: []
+        },
+        clarifying_question: `Here's the full list of books by ${knownAuthor.displayName} on Goodreads:\n${knownAuthor.url}`,
+        results: [],
+        post_prompt: ''
+      };
+    } else {
+      // Fallback to Goodreads search
+      const searchQuery = authorName.replace(/\s+/g, '+').replace(/[^a-zA-Z0-9+]/g, '');
+      const searchUrl = `https://www.goodreads.com/search?q=${searchQuery}&search_type=authors`;
+      
+      logger.info({ authorName, searchUrl }, 'Using Goodreads search fallback');
+      
+      return {
+        intent: 'AUTHOR_SEARCH' as const,
+        confidence: 0.8,
+        seed_book: {
+          title: '',
+          author: authorName,
+          series: '',
+          isbn: '',
+          publisher: '',
+          year: '',
+          audience: 'adult',
+          format: 'search',
+          genre: '',
+          subgenres: [],
+          themes: [],
+          tone_style: [],
+          notable_features: []
+        },
+        similarity_rules_applied: {
+          matched_axes: ['author'],
+          min_required_axes: 1
+        },
+        filters: {
+          audience_lock: false,
+          format_lock: false,
+          exclude: []
+        },
+        clarifying_question: `I couldn't find an exact match, but here's what I found on Goodreads:\n${searchUrl}`,
+        results: [],
+        post_prompt: ''
+      };
+    }
+  }
+
   async getHealthStatus(): Promise<HealthStatus> {
     console.log('Orchestrator: Starting health checks...');
-    const [ollama, readarr, prowlarr, qbittorrent] = await Promise.all([
-      checkOllamaHealth(),
+    const [readarr, prowlarr, qbittorrent] = await Promise.all([
       checkReadarrHealth(),
       checkProwlarrHealth(),
       checkQbittorrentHealth(),
     ]);
-    console.log('Orchestrator: Ollama health:', ollama);
     console.log('Orchestrator: Readarr health:', readarr);
     console.log('Orchestrator: Prowlarr health:', prowlarr);
     console.log('Orchestrator: qBittorrent health:', qbittorrent);
 
         
 
-    const overallHealthy = ollama.status === 'up' && readarr.status === 'up' && prowlarr.status === 'up' && qbittorrent.status === 'up';
+    const overallHealthy = readarr.status === 'up' && prowlarr.status === 'up' && qbittorrent.status === 'up';
 
     return {
       overall: overallHealthy,
       status: overallHealthy ? 'healthy' : 'unhealthy',
       timestamp: new Date().toISOString(),
       services: {
-        ollama,
         readarr,
         prowlarr,
         qbittorrent,

@@ -42,6 +42,11 @@ export class DiscordBot {
       this.messageHandler.handle(message);
     });
 
+    this.client.on(Events.InteractionCreate, async (interaction) => {
+      if (!interaction.isButton()) return;
+      await this.messageHandler.handleButtonInteraction(interaction);
+    });
+
     this.client.on(Events.Debug, (message) => {
       logger.debug({ message }, 'Discord debug');
     });

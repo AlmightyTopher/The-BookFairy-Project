@@ -1,16 +1,248 @@
-import { Message } from 'discord.js';
+import { Message, ActionRowBuilder, ButtonBuilder, ButtonStyle, ButtonInteraction, MessageFlags } from 'discord.js';
 import { AudiobookOrchestrator } from '../orchestrator/audiobook-orchestrator';
 import { logger } from '../utils/logger';
 import { BookFairyResponse, BookFairyResponseT } from '../schemas/book_fairy_response.schema';
 import { needsClarification } from '../server/clarify_policy';
 import { shouldAskAuthorMore } from '../server/author_guard';
 
+interface UserSession {
+  lastResponse?: BookFairyResponseT;
+  lastInteractionTime?: Date;
+  searchCount: number;
+  hasShownResults: boolean;
+  pendingDownload?: boolean;
+  currentPage?: number;
+  allResults?: any[];
+}
+
 export class MessageHandler {
   private orchestrator: AudiobookOrchestrator;
-  private lastResponse?: BookFairyResponseT;
+  private sessions = new Map<string, UserSession>();
 
   constructor() {
     this.orchestrator = new AudiobookOrchestrator();
+  }
+
+  private getSession(userId: string): UserSession {
+    if (!this.sessions.has(userId)) {
+      this.sessions.set(userId, {
+        searchCount: 0,
+        hasShownResults: false,
+        currentPage: 0,
+        allResults: []
+      });
+    }
+    return this.sessions.get(userId)!;
+  }
+
+  private updateSession(message: Message, response: BookFairyResponseT): void {
+    const session = this.getSession(message.author.id);
+    session.lastResponse = response;
+    session.lastInteractionTime = new Date();
+    if (response.results.length > 0) {
+      session.hasShownResults = true;
+      session.searchCount++;
+    }
+  }
+
+  // Public method to store search results from quick actions
+  public storeSearchResults(userId: string, result: any): void {
+    const session = this.getSession(userId);
+    session.lastResponse = result as BookFairyResponseT;
+    session.lastInteractionTime = new Date();
+    session.hasShownResults = true;
+    session.searchCount++;
+    
+    // Store all results for button interactions
+    if (result.allResults) {
+      session.allResults = result.allResults;
+    } else if (result.results) {
+      session.allResults = result.results;
+    }
+    
+    // Store pagination info
+    if (result.pagination) {
+      session.currentPage = result.pagination.currentPage || 0;
+    }
+  }
+
+  private formatPaginatedResults(results: any[], currentPage: number, totalPages: number, totalResults: number, hasNextPage: boolean, startIndex: number): string {
+    let responseMsg = `Showing ${startIndex + 1}-${startIndex + results.length} of ${totalResults} results (Page ${currentPage}/${totalPages}):\n\n`;
+    
+    responseMsg += results
+      .map((book, index) => `${startIndex + index + 1}. ${book.title}\n   ${book.why_similar}`)
+      .join('\n\n');
+
+    if (hasNextPage) {
+      responseMsg += `\n\nSay "next" to see more results, or pick a number to download!`;
+    } else {
+      responseMsg += `\n\nPick a number to download!`;
+    }
+
+    return responseMsg;
+  }
+
+  private createSearchResultButtons(results: any[], startIndex: number, hasNextPage: boolean): ActionRowBuilder<ButtonBuilder>[] {
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    
+    // Create numbered buttons for up to 5 results (Discord's limit per row)
+    const buttons: ButtonBuilder[] = [];
+    for (let i = 0; i < Math.min(results.length, 5); i++) {
+      const buttonNumber = startIndex + i + 1;
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(`download_${buttonNumber}`)
+          .setLabel(`${buttonNumber}`)
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+    
+    // Add buttons to row
+    if (buttons.length > 0) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
+    }
+    
+    // Add navigation buttons if needed
+    const navButtons: ButtonBuilder[] = [];
+    
+    if (hasNextPage) {
+      navButtons.push(
+        new ButtonBuilder()
+          .setCustomId('next_page')
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+    
+    navButtons.push(
+      new ButtonBuilder()
+        .setCustomId('new_search')
+        .setLabel('New Search')
+        .setStyle(ButtonStyle.Success)
+    );
+    
+    if (navButtons.length > 0) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
+    }
+    
+    return rows;
+  }
+
+  private shouldAskForAnotherSearch(session: UserSession): boolean {
+    // Only ask if they've seen results and completed an interaction, but not immediately after download
+    return session.hasShownResults && session.searchCount > 0 && !session.pendingDownload;
+  }
+
+  private async handleDownloadRequest(message: Message, session: UserSession, selectedIndex: number): Promise<void> {
+    if (!session.lastResponse?.results || selectedIndex >= session.lastResponse.results.length) {
+      await message.reply(`Please choose a number between 1 and ${session.lastResponse?.results?.length || 0}.`);
+      return;
+    }
+
+    const selectedBook = session.lastResponse.results[selectedIndex];
+    
+    // Mark that a download is pending to prevent immediate re-prompting
+    session.pendingDownload = true;
+    
+    const downloadResult = await this.orchestrator.downloadBook(selectedBook.title);
+    
+    if (downloadResult.success) {
+      await message.reply(`✅ Started downloading "${selectedBook.title}"! It'll be ready soon.\n\nWould you like to add another book? Just ask me to search for it!`);
+    } else {
+      await message.reply(`❌ Failed to download "${selectedBook.title}": ${downloadResult.error}\n\nWould you like to try another book? Just ask me to search for it!`);
+    }
+    
+    // Reset the download flag after completion
+    session.pendingDownload = false;
+  }
+
+  async handleButtonInteraction(interaction: ButtonInteraction) {
+    try {
+      const session = this.getSession(interaction.user.id);
+      
+      if (interaction.customId.startsWith('download_')) {
+        // Extract the number from the button ID
+        const selectedNumber = parseInt(interaction.customId.replace('download_', ''));
+        const selectedIndex = selectedNumber - 1;
+        
+        // Find the correct book from all results or current page results
+        let selectedBook;
+        if (session.allResults && session.allResults.length > selectedIndex) {
+          selectedBook = session.allResults[selectedIndex];
+        } else if (session.lastResponse?.results && session.lastResponse.results.length > (selectedIndex % 5)) {
+          selectedBook = session.lastResponse.results[selectedIndex % 5];
+        }
+        
+        if (!selectedBook) {
+          await interaction.reply({ content: 'Sorry, I couldn\'t find that book. Please try again.', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        
+        // Mark that a download is pending
+        session.pendingDownload = true;
+        
+        await interaction.reply({ content: `🔄 Starting download for "${selectedBook.title}"...`, flags: MessageFlags.Ephemeral });
+        
+        const downloadResult = await this.orchestrator.downloadBook(selectedBook.title);
+        
+        if (downloadResult.success) {
+          await interaction.followUp({ 
+            content: `✅ Started downloading "${selectedBook.title}"! It'll be ready soon.\n\nWould you like to add another book? Just ask me to search for it!`,
+            flags: [] 
+          });
+        } else {
+          await interaction.followUp({ 
+            content: `❌ Failed to download "${selectedBook.title}": ${downloadResult.error}\n\nWould you like to try another book? Just ask me to search for it!`,
+            flags: [] 
+          });
+        }
+        
+        // Reset the download flag
+        session.pendingDownload = false;
+        
+      } else if (interaction.customId === 'next_page') {
+        // Handle next page button
+        if (session.allResults && session.allResults.length > 0) {
+          const nextPage = (session.currentPage || 0) + 1;
+          const resultsPerPage = 5;
+          const startIndex = nextPage * resultsPerPage;
+          
+          if (startIndex < session.allResults.length) {
+            session.currentPage = nextPage;
+            const pageResults = session.allResults.slice(startIndex, startIndex + resultsPerPage);
+            const totalPages = Math.ceil(session.allResults.length / resultsPerPage);
+            const hasNextPage = startIndex + resultsPerPage < session.allResults.length;
+            
+            // Update session with current page results
+            session.lastResponse = {
+              ...session.lastResponse!,
+              results: pageResults
+            };
+            
+            const response = this.formatPaginatedResults(pageResults, nextPage + 1, totalPages, session.allResults.length, hasNextPage, startIndex);
+            const buttons = this.createSearchResultButtons(pageResults, startIndex, hasNextPage);
+            
+            await interaction.reply({ 
+              content: response, 
+              components: buttons,
+              flags: []
+            });
+          } else {
+            await interaction.reply({ content: "You've seen all the results! Would you like to search for another book?", flags: MessageFlags.Ephemeral });
+          }
+        }
+        
+      } else if (interaction.customId === 'new_search') {
+        await interaction.reply({ 
+          content: "What book would you like to search for next?", 
+          flags: MessageFlags.Ephemeral 
+        });
+      }
+      
+    } catch (error) {
+      logger.error({ error }, 'Failed to handle button interaction');
+      await interaction.reply({ content: 'Sorry, something went wrong. Please try again.', flags: MessageFlags.Ephemeral });
+    }
   }
 
   async handle(message: Message) {
@@ -29,6 +261,8 @@ export class MessageHandler {
     if (!isMentioned && !containsBotName) return;
 
     try {
+      const session = this.getSession(message.author.id);
+      
       // Remove bot mention and bot names from the message
       let query = message.content
         .replace(/<@!?\d+>/g, '') // Remove Discord user mentions
@@ -43,31 +277,51 @@ export class MessageHandler {
 
       logger.info({ query }, 'Processing book request');
 
-      // Check for number selection to download a specific book
-      const numberMatch = query.match(/^(\d+)$/);
-      if (numberMatch && this.lastResponse?.results && this.lastResponse.results.length > 0) {
-        const selectedIndex = parseInt(numberMatch[1]) - 1;
-        if (selectedIndex >= 0 && selectedIndex < this.lastResponse.results.length) {
-          const selectedBook = this.lastResponse.results[selectedIndex];
-          const downloadResult = await this.orchestrator.downloadBook(selectedBook.title);
+      // Check for "next" command to show more results
+      if (query.toLowerCase() === 'next' && session.allResults && session.allResults.length > 0) {
+        const nextPage = (session.currentPage || 0) + 1;
+        const resultsPerPage = 5;
+        const startIndex = nextPage * resultsPerPage;
+        
+        if (startIndex < session.allResults.length) {
+          session.currentPage = nextPage;
+          const pageResults = session.allResults.slice(startIndex, startIndex + resultsPerPage);
+          const totalPages = Math.ceil(session.allResults.length / resultsPerPage);
+          const hasNextPage = startIndex + resultsPerPage < session.allResults.length;
           
-          if (downloadResult.success) {
-            await message.reply(`✅ Started downloading "${selectedBook.title}"! It'll be ready soon.`);
-          } else {
-            await message.reply(`❌ Failed to download "${selectedBook.title}": ${downloadResult.error}`);
-          }
+          // Update session with current page results
+          session.lastResponse = {
+            ...session.lastResponse!,
+            results: pageResults
+          };
+          
+          const response = this.formatPaginatedResults(pageResults, nextPage + 1, totalPages, session.allResults.length, hasNextPage, startIndex);
+          const buttons = this.createSearchResultButtons(pageResults, startIndex, hasNextPage);
+          
+          await message.reply({ 
+            content: response, 
+            components: buttons 
+          });
           return;
         } else {
-          await message.reply(`Please choose a number between 1 and ${this.lastResponse.results.length}.`);
+          await message.reply("You've seen all the results! Would you like to search for another book?");
           return;
         }
       }
 
+      // Check for number selection to download a specific book
+      const numberMatch = query.match(/^(\d+)$/);
+      if (numberMatch && session.lastResponse?.results && session.lastResponse.results.length > 0) {
+        const selectedIndex = parseInt(numberMatch[1]) - 1;
+        await this.handleDownloadRequest(message, session, selectedIndex);
+        return;
+      }
+
       // Check for "yes" response to previous author prompt
-      if (this.lastResponse?.post_prompt && 
+      if (session.lastResponse?.post_prompt && 
           /^(yes|yeah|sure|ok|okay|yep|y)$/i.test(query) &&
-          this.lastResponse?.seed_book?.author) {
-        query = `more books by ${this.lastResponse.seed_book.author}`;
+          session.lastResponse?.seed_book?.author) {
+        query = `more books by ${session.lastResponse.seed_book.author}`;
       }
 
       const result = await this.orchestrator.handleRequest(query);
@@ -84,8 +338,17 @@ export class MessageHandler {
       const validatedResponse = BookFairyResponse.parse(result);
       logger.info({ validatedResponse }, 'Response validated against schema successfully');
       
-      // Store for next turn
-      this.lastResponse = validatedResponse;
+      // Update session with new response
+      this.updateSession(message, validatedResponse);
+      
+      // Store all results for pagination
+      if (validatedResponse.results.length > 5) {
+        session.allResults = validatedResponse.results;
+        session.currentPage = 0;
+        // Show first 5 results
+        const firstPageResults = validatedResponse.results.slice(0, 5);
+        validatedResponse.results = firstPageResults;
+      }
 
       // Format response message
       let responseMsg = '';
@@ -96,16 +359,23 @@ export class MessageHandler {
         if (validatedResponse.results.length > 0) {
           // Check if this is a direct search (FIND_BY_TITLE) or similarity search
           if (validatedResponse.intent === 'FIND_BY_TITLE') {
-            responseMsg = `Found ${validatedResponse.results.length} audiobook(s) for "${validatedResponse.seed_book.title}":\n\n`;
+            responseMsg = `Found ${session.allResults?.length || validatedResponse.results.length} audiobook(s) for "${validatedResponse.seed_book.title}":\n\n`;
             
-            // List search results with download info
-            responseMsg += validatedResponse.results
-              .map((book, index) => `${index + 1}. ${book.title}\n   ${book.why_similar}`)
-              .join('\n\n');
+            // Use pagination-aware formatting
+            if (session.allResults && session.allResults.length > 5) {
+              const totalPages = Math.ceil(session.allResults.length / 5);
+              const hasNextPage = session.allResults.length > 5;
+              responseMsg = this.formatPaginatedResults(validatedResponse.results, 1, totalPages, session.allResults.length, hasNextPage, 0);
+            } else {
+              // List search results with download info
+              responseMsg += validatedResponse.results
+                .map((book, index) => `${index + 1}. ${book.title}\n   ${book.why_similar}`)
+                .join('\n\n');
 
-            // Add download status message
-            if (validatedResponse.post_prompt) {
-              responseMsg += `\n\n${validatedResponse.post_prompt}`;
+              // Add download status message
+              if (validatedResponse.post_prompt) {
+                responseMsg += `\n\n${validatedResponse.post_prompt}`;
+              }
             }
           } else {
             // This is a similarity search
@@ -133,7 +403,21 @@ export class MessageHandler {
       }
 
       logger.info({ responseMsg }, 'Sending response to Discord');
-      await message.reply(responseMsg);
+      
+      // Check if this is a search result that should have buttons
+      if (validatedResponse.results.length > 0 && validatedResponse.intent === 'FIND_BY_TITLE') {
+        const startIndex = session.currentPage ? session.currentPage * 5 : 0;
+        const hasNextPage = session.allResults ? session.allResults.length > (startIndex + 5) : false;
+        const buttons = this.createSearchResultButtons(validatedResponse.results, startIndex, hasNextPage);
+        
+        await message.reply({ 
+          content: responseMsg, 
+          components: buttons 
+        });
+      } else {
+        await message.reply(responseMsg);
+      }
+      
       logger.info({}, 'Response sent to Discord successfully');
     } catch (error) {
       logger.error({ error }, 'Failed to handle request');

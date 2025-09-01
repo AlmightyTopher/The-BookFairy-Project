@@ -131,41 +131,26 @@ export async function searchProwlarr(query: string, options: Partial<SearchOptio
   // Sort by seeders (highest first)
   results.sort((a: ProwlarrRelease, b: ProwlarrRelease) => b.seeders - a.seeders);
 
-  // Intelligent format selection - try M4B first, then MP3
-  const m4bResults = results.filter((result: ProwlarrRelease) => 
-    result.title.toLowerCase().includes('m4b')
-  );
-
-  if (m4bResults.length > 0) {
-    return {
-      results: m4bResults,
-      format: 'M4B',
-      total: m4bResults.length,
-      indexerId: searchOptions.indexerId
-    };
-  }
-
-  // If no M4B found, try MP3
-  const mp3Results = results.filter((result: ProwlarrRelease) => {
-    const title = result.title.toLowerCase();
-    return title.includes('mp3');
-  });
-
-  if (mp3Results.length > 0) {
-    return {
-      results: mp3Results,
-      format: 'MP3',
-      total: mp3Results.length,
-      indexerId: searchOptions.indexerId
-    };
-  }
-
-  // If no specific format found, return all audiobook results
+  // Very inclusive filtering - look for any audio-related content
   const audiobookResults = results.filter((result: ProwlarrRelease) => {
     const title = result.title.toLowerCase();
-    return title.includes('audio') || title.includes('mp3') || title.includes('m4a') || title.includes('m4b');
+    
+    // Include anything that might be an audiobook (very permissive)
+    return title.includes('audio') || 
+           title.includes('mp3') || 
+           title.includes('m4a') || 
+           title.includes('m4b') ||
+           title.includes('audiobook') ||
+           // MyAnonamouse format patterns
+           /\[ENG \/ (MP3|M4B|M4A)\]/i.test(result.title) ||
+           // Any audio category indicators
+           title.includes('narrated') ||
+           title.includes('voiced') ||
+           // If we can't detect format clearly, include results with common audiobook terms
+           (title.includes('by ') && (title.includes('mp3') || title.includes('audio')));
   });
 
+  // If we found audiobook-specific results, return those
   if (audiobookResults.length > 0) {
     return {
       results: audiobookResults,

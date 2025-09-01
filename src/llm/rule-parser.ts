@@ -26,6 +26,22 @@ export function parseWithRules(query: string): IntentClassification {
     };
   }
 
+  // Handle number selections (e.g., "1", "2", "download 3") - convert to search
+  const numberMatch = correctedQuery.match(/^(?:download\s+)?(\d+)$/i);
+  if (numberMatch) {
+    return {
+      intent: 'search_audiobook',
+      confidence: 0.95,
+      extracted: {
+        title: `selection ${numberMatch[1]}`, // Will be handled by message handler
+        author: 'Unknown',
+        language: 'en',
+        quality: 'any',
+        format: 'audiobook'
+      }
+    };
+  }
+
   // Handle "more books by Author" pattern
   if (lowerQuery.includes('more books by')) {
     const authorName = correctedQuery.split('more books by').pop()?.trim();
@@ -44,6 +60,7 @@ export function parseWithRules(query: string): IntentClassification {
     }
   }
 
+  // Enhanced search keyword detection
   if (searchKeywords.some((kw) => lowerQuery.includes(kw))) {
     const extracted = extractAudiobookDetails(correctedQuery);
     if (extracted) {
@@ -67,13 +84,13 @@ export function parseWithRules(query: string): IntentClassification {
     }
   }
 
-  // If no explicit search keywords but the query looks like a book title, try to search
-  if (lowerQuery.length > 3 && !lowerQuery.includes('help') && !lowerQuery.includes('status')) {
+  // Default: treat any text as a potential book search (this replaces LLM fallback)
+  if (lowerQuery.length > 2 && !lowerQuery.includes('help') && !lowerQuery.includes('status')) {
     const extracted = extractAudiobookDetails(correctedQuery);
-    if (extracted && extracted.title.length > 2) {
+    if (extracted && extracted.title.length > 1) {
       return {
         intent: 'search_audiobook',
-        confidence: 0.6, // Lower confidence since no explicit search intent
+        confidence: 0.6, // Lower confidence for general text
         extracted,
       };
     }
@@ -93,13 +110,34 @@ function extractAudiobookDetails(query: string): AudiobookRequest | undefined {
   let title = query.replace(byAuthorRegex, '').trim();
   
   // Remove common search prefixes more aggressively
-  const prefixes = ['find me', 'get me', 'search for', 'download', 'look for', 'find', 'get'];
+  const prefixes = [
+    'find me', 'get me', 'search for', 'download', 'look for', 'find', 'get',
+    'books with title', 'book with title', 'books titled', 'book titled',
+    'audiobooks with title', 'audiobook with title', 'audiobook titled',
+    'books by title', 'book by title'
+  ];
+  
   prefixes.forEach((prefix) => {
     const regex = new RegExp(`^${prefix}\\s+`, 'i');
     title = title.replace(regex, '').trim();
   });
 
-  if (title) {
+  // Handle specific patterns like "books with title X" or "title: X"
+  const titlePatterns = [
+    /^(?:books?|audiobooks?)\s+(?:with\s+)?title\s*:?\s*(.+)$/i,
+    /^title\s*:?\s*(.+)$/i,
+    /^(?:the\s+)?(.+)$/i
+  ];
+
+  for (const pattern of titlePatterns) {
+    const match = title.match(pattern);
+    if (match && match[1]) {
+      title = match[1].trim();
+      break;
+    }
+  }
+
+  if (title && title.length > 1) {
     return {
       title,
       author,
@@ -108,4 +146,6 @@ function extractAudiobookDetails(query: string): AudiobookRequest | undefined {
       format: 'audiobook',
     };
   }
+  
+  return undefined;
 }
