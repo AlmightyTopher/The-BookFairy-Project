@@ -11,6 +11,7 @@ import { ReadarrBook, ReadarrSearchResult } from '../types/readarr';
 import { checkReadarrHealth } from '../clients/readarr-client';
 import { checkProwlarrHealth } from '../clients/prowlarr-client';
 import { checkQbittorrentHealth } from '../clients/qbittorrent-client';
+import { downloadMonitor } from '../services/download-monitor';
 
 export class AudiobookOrchestrator {
   async handleRequest(query: string) {
@@ -630,15 +631,35 @@ export class AudiobookOrchestrator {
   }
 
   // Method to download a specific book by title or download URL
-  async downloadBook(bookTitle: string, downloadUrl?: string): Promise<{ success: boolean; error?: string }> {
+  async downloadBook(
+    bookTitle: string, 
+    downloadUrl?: string,
+    userId?: string,
+    channelId?: string
+  ): Promise<{ success: boolean; error?: string; hash?: string }> {
     try {
-      logger.info({ bookTitle, hasDownloadUrl: !!downloadUrl }, 'Attempting to download specific book');
+      logger.info({ bookTitle, hasDownloadUrl: !!downloadUrl, userId }, 'Attempting to download specific book');
       
       // If we have a direct download URL, use it
       if (downloadUrl) {
-        await addTorrent(downloadUrl);
-        logger.info({ torrent: { title: bookTitle, url: downloadUrl } }, 'Added torrent to qBittorrent successfully using direct URL');
-        return { success: true };
+        const result = await addTorrent(downloadUrl);
+        
+        if (result.success && result.hash && userId && channelId) {
+          // Track the download for completion notifications
+          downloadMonitor.trackDownload(result.hash, result.name || bookTitle, userId, channelId);
+          logger.info({ 
+            torrent: { title: bookTitle, url: downloadUrl, hash: result.hash },
+            userId 
+          }, 'Added torrent to qBittorrent successfully using direct URL and tracking enabled');
+        } else {
+          logger.info({ torrent: { title: bookTitle, url: downloadUrl } }, 'Added torrent to qBittorrent successfully using direct URL');
+        }
+        
+        return { 
+          success: result.success, 
+          hash: result.hash,
+          error: result.success ? undefined : 'Failed to add torrent' 
+        };
       }
       
       // Fallback: search for the book if no download URL provided
@@ -662,10 +683,24 @@ export class AudiobookOrchestrator {
         return { success: false, error: 'Exact book match not found' };
       }
 
-      await addTorrent(exactMatch.downloadUrl);
-      logger.info({ torrent: { title: exactMatch.title, url: exactMatch.downloadUrl } }, 'Added torrent to qBittorrent successfully');
+      const result = await addTorrent(exactMatch.downloadUrl);
       
-      return { success: true };
+      if (result.success && result.hash && userId && channelId) {
+        // Track the download for completion notifications
+        downloadMonitor.trackDownload(result.hash, result.name || exactMatch.title, userId, channelId);
+        logger.info({ 
+          torrent: { title: exactMatch.title, url: exactMatch.downloadUrl, hash: result.hash },
+          userId 
+        }, 'Added torrent to qBittorrent successfully and tracking enabled');
+      } else {
+        logger.info({ torrent: { title: exactMatch.title, url: exactMatch.downloadUrl } }, 'Added torrent to qBittorrent successfully');
+      }
+      
+      return { 
+        success: result.success, 
+        hash: result.hash,
+        error: result.success ? undefined : 'Failed to add torrent' 
+      };
     } catch (error: any) {
       logger.error({ error: error.message, bookTitle }, 'Error downloading book');
       return { success: false, error: error.message };

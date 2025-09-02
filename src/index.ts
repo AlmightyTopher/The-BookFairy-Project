@@ -7,6 +7,7 @@ import { logger } from './utils/logger';
 import { startMetrics, requests } from './metrics/server';
 import { withReqId } from './lib/logger';
 import { randomUUID } from 'crypto';
+import { downloadMonitor } from './services/download-monitor';
 
 const client = new Client({
   intents: [
@@ -28,6 +29,10 @@ client.once('clientReady', () => {
   // Set the Discord client and message handler in the dispatch bridge
   setDiscordClient(client);
   setMessageHandler(messageHandler);
+  
+  // Set up download monitor with Discord client
+  downloadMonitor.setDiscordClient(client);
+  logger.info('Download monitor initialized with Discord client');
   
   // Start metrics server
   startMetrics(parseInt(process.env.METRICS_PORT || '9090'));
@@ -96,3 +101,14 @@ client.login(config.discord.token)
     logger.error('Failed to start bot:', error);
     process.exit(1);
   });
+
+// Graceful shutdown
+const shutdown = () => {
+  logger.info('Shutting down gracefully...');
+  downloadMonitor.stopMonitoring();
+  client.destroy();
+  process.exit(0);
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

@@ -6,6 +6,7 @@ import { needsClarification } from '../server/clarify_policy';
 import { shouldAskAuthorMore } from '../server/author_guard';
 import { sanitizeUserContent } from '../utils/sanitize';
 import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goodreads';
+import { downloadMonitor } from '../services/download-monitor';
 
 interface UserSession {
   lastResponse?: BookFairyResponseT;
@@ -116,7 +117,11 @@ export class MessageHandler {
       new ButtonBuilder()
         .setCustomId('recommend_new')
         .setLabel('✨ New Releases')
-        .setStyle(ButtonStyle.Success)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('check_downloads')
+        .setLabel('📥 My Downloads')
+        .setStyle(ButtonStyle.Secondary)
     ];
     
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(quickButtons));
@@ -230,6 +235,40 @@ export class MessageHandler {
     return session.hasShownResults && session.searchCount > 0 && !session.pendingDownload;
   }
 
+  private async handleDownloadStatus(message: Message): Promise<void> {
+    const userDownloads = downloadMonitor.getUserDownloads(message.author.id);
+    
+    if (userDownloads.length === 0) {
+      await message.reply("📥 You don't have any downloads being tracked right now.\n\nStart a download by searching for a book and selecting one!");
+      return;
+    }
+
+    let statusMessage = "📥 **Your Download Status:**\n\n";
+    
+    for (const download of userDownloads) {
+      const downloadTime = Math.round((Date.now() - download.startTime) / 1000 / 60); // minutes
+      
+      if (download.notified) {
+        statusMessage += `✅ **${download.name}** - Completed\n`;
+      } else {
+        // Check current status
+        const status = await downloadMonitor.checkDownloadStatus(download.hash);
+        if (status.completed) {
+          statusMessage += `🎉 **${download.name}** - Just finished!\n`;
+        } else {
+          statusMessage += `🔄 **${download.name}** - Downloading (${downloadTime}m)\n`;
+        }
+      }
+    }
+
+    const activeCount = downloadMonitor.getActiveDownloadsCount();
+    if (activeCount > 0) {
+      statusMessage += `\n💡 I'll notify you when your downloads complete!`;
+    }
+
+    await message.reply(statusMessage);
+  }
+
   private async handleDownloadRequest(message: Message, session: UserSession, selectedIndex: number): Promise<void> {
     if (!session.lastResponse?.results || selectedIndex >= session.lastResponse.results.length) {
       await message.reply(`Please choose a number between 1 and ${session.lastResponse?.results?.length || 0}.`);
@@ -241,10 +280,23 @@ export class MessageHandler {
     // Mark that a download is pending to prevent immediate re-prompting
     session.pendingDownload = true;
     
-    const downloadResult = await this.orchestrator.downloadBook(selectedBook.title, selectedBook.downloadUrl);
+    const downloadResult = await this.orchestrator.downloadBook(
+      selectedBook.title, 
+      selectedBook.downloadUrl,
+      message.author.id,
+      message.channel.id
+    );
     
     if (downloadResult.success) {
-      await message.reply(`✅ Started downloading "${selectedBook.title}"! It'll be ready soon.\n\nWould you like to add another book? Just ask me to search for it!`);
+      let responseMessage = `✅ Started downloading "${selectedBook.title}"! `;
+      if (downloadResult.hash) {
+        responseMessage += `I'll notify you when it's finished downloading.\n\n`;
+      } else {
+        responseMessage += `It'll be ready soon.\n\n`;
+      }
+      responseMessage += `Would you like to add another book? Just ask me to search for it!`;
+      
+      await message.reply(responseMessage);
     } else {
       await message.reply(`❌ Failed to download "${selectedBook.title}": ${downloadResult.error}\n\nWould you like to try another book? Just ask me to search for it!`);
     }
@@ -303,11 +355,24 @@ export class MessageHandler {
         
         await interaction.reply({ content: `🔄 Starting download for "${selectedBook.title}"...`, flags: MessageFlags.Ephemeral });
         
-        const downloadResult = await this.orchestrator.downloadBook(selectedBook.title, selectedBook.downloadUrl);
+        const downloadResult = await this.orchestrator.downloadBook(
+          selectedBook.title, 
+          selectedBook.downloadUrl,
+          interaction.user.id,
+          interaction.channel?.id
+        );
         
         if (downloadResult.success) {
+          let responseMessage = `✅ Started downloading "${selectedBook.title}"! `;
+          if (downloadResult.hash) {
+            responseMessage += `I'll notify you when it's finished downloading.\n\n`;
+          } else {
+            responseMessage += `It'll be ready soon.\n\n`;
+          }
+          responseMessage += `Would you like to add another book? Just ask me to search for it!`;
+          
           await interaction.followUp({ 
-            content: `✅ Started downloading "${selectedBook.title}"! It'll be ready soon.\n\nWould you like to add another book? Just ask me to search for it!`,
+            content: responseMessage,
             flags: [] 
           });
         } else {
@@ -444,6 +509,42 @@ export class MessageHandler {
         
         const result = await this.orchestrator.handleRequest('new audiobook releases');
         // Handle similar to genre search...
+        
+      } else if (interaction.customId === 'check_downloads') {
+        const userDownloads = downloadMonitor.getUserDownloads(interaction.user.id);
+        
+        if (userDownloads.length === 0) {
+          await interaction.reply({ 
+            content: "📥 You don't have any downloads being tracked right now.\n\nStart a download by searching for a book and selecting one!",
+            flags: MessageFlags.Ephemeral 
+          });
+          return;
+        }
+
+        let statusMessage = "📥 **Your Download Status:**\n\n";
+        
+        for (const download of userDownloads) {
+          const downloadTime = Math.round((Date.now() - download.startTime) / 1000 / 60); // minutes
+          
+          if (download.notified) {
+            statusMessage += `✅ **${download.name}** - Completed\n`;
+          } else {
+            // Check current status
+            const status = await downloadMonitor.checkDownloadStatus(download.hash);
+            if (status.completed) {
+              statusMessage += `🎉 **${download.name}** - Just finished!\n`;
+            } else {
+              statusMessage += `🔄 **${download.name}** - Downloading (${downloadTime}m)\n`;
+            }
+          }
+        }
+
+        const activeCount = downloadMonitor.getActiveDownloadsCount();
+        if (activeCount > 0) {
+          statusMessage += `\n💡 I'll notify you when your downloads complete!`;
+        }
+
+        await interaction.reply({ content: statusMessage, flags: MessageFlags.Ephemeral });
         
       } else if (interaction.customId === 'more_info') {
         // Show Goodreads links in the same format as search results
@@ -651,6 +752,12 @@ export class MessageHandler {
           await message.reply("You've seen all the results! Would you like to search for another book?");
           return;
         }
+      }
+
+      // Check for "downloads" or "status" command to show download status
+      if (/^(downloads?|status)$/i.test(query.trim())) {
+        await this.handleDownloadStatus(message);
+        return;
       }
 
       // Check for number selection to download a specific book
