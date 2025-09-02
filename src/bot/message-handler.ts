@@ -5,6 +5,7 @@ import { BookFairyResponse, BookFairyResponseT } from '../schemas/book_fairy_res
 import { needsClarification } from '../server/clarify_policy';
 import { shouldAskAuthorMore } from '../server/author_guard';
 import { sanitizeUserContent } from '../utils/sanitize';
+import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goodreads';
 
 interface UserSession {
   lastResponse?: BookFairyResponseT;
@@ -14,6 +15,7 @@ interface UserSession {
   pendingDownload?: boolean;
   currentPage?: number;
   allResults?: any[];
+  moreInfoMode?: boolean; // Track if user is in "more info" mode
 }
 
 export class MessageHandler {
@@ -30,7 +32,8 @@ export class MessageHandler {
         searchCount: 0,
         hasShownResults: false,
         currentPage: 0,
-        allResults: []
+        allResults: [],
+        moreInfoMode: false
       });
     }
     return this.sessions.get(userId)!;
@@ -71,8 +74,8 @@ export class MessageHandler {
     let responseMsg = `Showing ${startIndex + 1}-${startIndex + results.length} of ${totalResults} results (Page ${currentPage}/${totalPages}):\n\n`;
     
     responseMsg += results
-      .map((book, index) => `${startIndex + index + 1}. ${book.title}\n   ${book.why_similar}`)
-      .join('\n\n');
+      .map((book, index) => formatBook(book.title, book.author, startIndex + index + 1))
+      .join('\n');
 
     if (hasNextPage) {
       responseMsg += `\n\nSay "next" to see more results, or pick a number to download!`;
@@ -203,6 +206,13 @@ export class MessageHandler {
     
     navButtons.push(
       new ButtonBuilder()
+        .setCustomId('more_info')
+        .setLabel('📖 More Info')
+        .setStyle(ButtonStyle.Secondary)
+    );
+    
+    navButtons.push(
+      new ButtonBuilder()
         .setCustomId('new_search')
         .setLabel('New Search')
         .setStyle(ButtonStyle.Success)
@@ -252,6 +262,29 @@ export class MessageHandler {
         const selectedNumber = parseInt(interaction.customId.replace('download_', ''));
         const selectedIndex = selectedNumber - 1;
         
+        // Check if we're in "more info mode"
+        if (session.moreInfoMode) {
+          // Show Goodreads link for the selected book
+          let selectedBook;
+          if (session.allResults && session.allResults.length > selectedIndex) {
+            selectedBook = session.allResults[selectedIndex];
+          } else if (session.lastResponse?.results && session.lastResponse.results.length > (selectedIndex % 5)) {
+            selectedBook = session.lastResponse.results[selectedIndex % 5];
+          }
+          
+          if (selectedBook) {
+            const goodreadsUrl = `https://www.goodreads.com/search?q=${encodeURIComponent(`${selectedBook.title} ${selectedBook.author}`)}`;
+            await interaction.reply({ 
+              content: `📖 **${selectedBook.title}** by ${selectedBook.author}\n\n${goodreadsUrl}\n\n*Click the link above to view on Goodreads*`, 
+              flags: MessageFlags.Ephemeral 
+            });
+          } else {
+            await interaction.reply({ content: 'Sorry, I couldn\'t find that book. Please try again.', flags: MessageFlags.Ephemeral });
+          }
+          return;
+        }
+        
+        // Normal download mode
         // Find the correct book from all results or current page results
         let selectedBook;
         if (session.allResults && session.allResults.length > selectedIndex) {
@@ -320,7 +353,10 @@ export class MessageHandler {
         }
         
       } else if (interaction.customId === 'new_search') {
-        // Show welcome menu instead of just text
+        // Reset more info mode and show welcome menu
+        const session = this.getSession(interaction.user.id);
+        session.moreInfoMode = false;
+        
         const welcomeButtons = this.createWelcomeButtons();
         await interaction.reply({ 
           content: "🪄 **Welcome to Book Fairy!** How would you like to find your next audiobook?", 
@@ -381,8 +417,8 @@ export class MessageHandler {
           
           const responseMsg = `Found ${session.allResults?.length || validatedResponse.results.length} ${searchQuery}:\n\n` +
             validatedResponse.results
-              .map((book, index) => `${index + 1}. ${book.title}\n   ${book.why_similar}`)
-              .join('\n\n');
+              .map((book, index) => formatBook(book.title, book.author, index + 1))
+              .join('\n');
               
           const buttons = this.createSearchResultButtons(validatedResponse.results, 0, (session.allResults?.length || 0) > 5);
           
@@ -409,7 +445,30 @@ export class MessageHandler {
         const result = await this.orchestrator.handleRequest('new audiobook releases');
         // Handle similar to genre search...
         
+      } else if (interaction.customId === 'more_info') {
+        // Toggle "more info mode" and update the message
+        const session = this.getSession(interaction.user.id);
+        session.moreInfoMode = !session.moreInfoMode;
+        
+        if (session.moreInfoMode) {
+          // Show instructions for info mode
+          await interaction.reply({ 
+            content: `📖 **Information Mode Activated**\n\nNow click any number (1-5) to view Goodreads information for that book instead of downloading.\n\n*Click "📖 More Info" again to return to download mode.*`, 
+            flags: MessageFlags.Ephemeral 
+          });
+        } else {
+          // Back to download mode
+          await interaction.reply({ 
+            content: `📥 **Download Mode Activated**\n\nNow click any number (1-5) to download that book.\n\n*Click "📖 More Info" to view book information instead.*`, 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
+        
       } else if (interaction.customId === 'back_to_main') {
+        // Reset more info mode and show welcome menu
+        const session = this.getSession(interaction.user.id);
+        session.moreInfoMode = false;
+        
         const welcomeButtons = this.createWelcomeButtons();
         await interaction.reply({ 
           content: "🪄 **Welcome to Book Fairy!** How would you like to find your next audiobook?", 
@@ -558,12 +617,10 @@ export class MessageHandler {
               const hasNextPage = totalResults > 5;
               responseMsg = this.formatPaginatedResults(validatedResponse.results, 1, totalPages, totalResults, hasNextPage, 0);
             } else {
-              // List search results with download info
-              responseMsg += validatedResponse.results
-                .map((book, index) => `${index + 1}. ${book.title}\n   ${book.why_similar}`)
-                .join('\n\n');
-
-              // Add download status message
+            // List search results with clean title + author format and Goodreads links
+            responseMsg += validatedResponse.results
+              .map((book, index) => formatBook(book.title, book.author, index + 1))
+              .join('\n');              // Add download status message
               if (validatedResponse.post_prompt) {
                 responseMsg += `\n\n${validatedResponse.post_prompt}`;
               }
@@ -574,13 +631,10 @@ export class MessageHandler {
               responseMsg = `Based on ${validatedResponse.seed_book.title}, here are some suggestions:\n\n`;
             }
 
-            // List results with similarity reasons
+            // List results with clean title + author format and Goodreads links
             responseMsg += validatedResponse.results
-              .map(book => {
-                const features = book.similarity_axes.slice(0, 2).join(', ');
-                return `- ${book.title} by ${book.author}\n  ${book.why_similar} (matching on ${features})`;
-              })
-              .join('\n\n');
+              .map(book => formatBookBullet(book.title, book.author))
+              .join('\n');
 
             // Add author follow-up if appropriate
             if (validatedResponse.post_prompt) {

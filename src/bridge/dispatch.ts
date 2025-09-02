@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { formatBook, formatBookBullet } from '../utils/goodreads';
 import { AudiobookOrchestrator } from '../orchestrator/audiobook-orchestrator';
 import { Client, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { MessageHandler } from '../bot/message-handler';
@@ -126,16 +127,13 @@ export async function dispatchUserQuery(payload: UserQueryPayload): Promise<void
                 // Number the results based on current page
                 const startNumber = (result as any).pagination ? ((result as any).pagination.currentPage * 5) + 1 : 1;
                 response += result.results
-                  .map((book: any, index: number) => `${startNumber + index}. ${book.title}\n   ${book.why_similar}`)
-                  .join('\n\n');
+                  .map((book: any, index: number) => formatBook(book.title, book.author, startNumber + index))
+                  .join('\n');
               } else {
                 response = `Based on your search, here are some suggestions:\n\n`;
                 response += result.results
-                  .map((book: any) => {
-                    const features = book.similarity_axes?.slice(0, 2).join(', ') || 'various factors';
-                    return `- ${book.title} by ${book.author}\n  ${book.why_similar} (matching on ${features})`;
-                  })
-                  .join('\n\n');
+                  .map((book: any) => formatBookBullet(book.title, book.author))
+                  .join('\n');
               }
               
               // Add custom post prompt (includes pagination instructions)

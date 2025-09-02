@@ -399,15 +399,27 @@ export class AudiobookOrchestrator {
   private formatAudiobookResults(searchResult: any, request: any, isAuthorSearch: boolean = false, page: number = 0) {
     // Store ALL results, not just first 5
     const allResults = searchResult.results.map((result: any) => {
+      // Clean up the title by removing format and language tags
+      let cleanTitle = result.title
+        .replace(/\[ENG\s*\/\s*(MP3|M4B|M4A|FLAC|AAC)\]/gi, '') // Remove [ENG / FORMAT]
+        .replace(/\[(MP3|M4B|M4A|FLAC|AAC)\]/gi, '') // Remove [FORMAT]
+        .replace(/\[ENG\]/gi, '') // Remove [ENG]
+        .replace(/\s*-\s*(MP3|M4B|M4A|FLAC|AAC)$/gi, '') // Remove trailing - FORMAT
+        .replace(/\s*\((MP3|M4B|M4A|FLAC|AAC)\)$/gi, '') // Remove trailing (FORMAT)
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+      
       // Try to extract author from title
       let author = 'Unknown';
-      const byMatch = result.title.match(/by\s+([^[]+)/i);
+      const byMatch = cleanTitle.match(/by\s+([^[]+)/i);
       if (byMatch) {
         author = byMatch[1].trim();
+        // Remove the "by Author" part from title to clean it up further
+        cleanTitle = cleanTitle.replace(/\s*by\s+[^[]+/i, '').trim();
       }
       
       return {
-        title: result.title,
+        title: cleanTitle,
         author: author,
         genre: 'audiobook',
         subgenre: '',
