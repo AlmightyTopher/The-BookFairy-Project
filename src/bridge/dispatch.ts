@@ -3,6 +3,7 @@ import { formatBook, formatBookBullet } from '../utils/goodreads';
 import { AudiobookOrchestrator } from '../orchestrator/audiobook-orchestrator';
 import { Client, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { MessageHandler } from '../bot/message-handler';
+import { createSearchResultButtons } from '../utils/discord-ui';
 
 interface UserQueryPayload {
   userId: string;
@@ -23,59 +24,6 @@ export function setDiscordClient(client: Client): void {
 
 export function setMessageHandler(handler: MessageHandler): void {
   messageHandler = handler;
-}
-
-function createSearchResultButtons(results: any[], startIndex: number, hasNextPage: boolean): ActionRowBuilder<ButtonBuilder>[] {
-  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  
-  // Create numbered buttons for up to 5 results
-  const buttons: ButtonBuilder[] = [];
-  for (let i = 0; i < Math.min(results.length, 5); i++) {
-    const buttonNumber = startIndex + i + 1;
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(`download_${buttonNumber}`)
-        .setLabel(`${buttonNumber}`)
-        .setStyle(ButtonStyle.Primary)
-    );
-  }
-  
-  // Add buttons to row
-  if (buttons.length > 0) {
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
-  }
-  
-  // Add navigation buttons if needed
-  const navButtons: ButtonBuilder[] = [];
-  
-  if (hasNextPage) {
-    navButtons.push(
-      new ButtonBuilder()
-        .setCustomId('next_page')
-        .setLabel('Next')
-        .setStyle(ButtonStyle.Secondary)
-    );
-  }
-  
-  navButtons.push(
-    new ButtonBuilder()
-      .setCustomId('more_info')
-      .setLabel('📖 More Info')
-      .setStyle(ButtonStyle.Secondary)
-  );
-  
-  navButtons.push(
-    new ButtonBuilder()
-      .setCustomId('new_search')
-      .setLabel('New Search')
-      .setStyle(ButtonStyle.Success)
-  );
-  
-  if (navButtons.length > 0) {
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
-  }
-  
-  return rows;
 }
 
 export async function dispatchUserQuery(payload: UserQueryPayload): Promise<void> {

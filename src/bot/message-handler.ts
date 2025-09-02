@@ -3,11 +3,11 @@ import { AudiobookOrchestrator } from '../orchestrator/audiobook-orchestrator';
 import { logger } from '../utils/logger';
 import { BookFairyResponse, BookFairyResponseT } from '../schemas/book_fairy_response.schema';
 import { needsClarification } from '../server/clarify_policy';
-import { shouldAskAuthorMore } from '../server/author_guard';
 import { sanitizeUserContent } from '../utils/sanitize';
 import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goodreads';
 import { downloadMonitor } from '../services/download-monitor';
 import { SouthernBellePersonality_Test } from '../personality/southern-belle-test';
+import { createSearchResultButtons } from '../utils/discord-ui';
 
 interface UserSession {
   lastResponse?: BookFairyResponseT;
@@ -25,6 +25,21 @@ interface UserSession {
   shouldEnforceButtons?: boolean;
 }
 
+/**
+ * Main Discord message handler for the Book Fairy bot.
+ * 
+ * Handles all incoming Discord messages and interactions, coordinating between:
+ * - User intent parsing and audiobook search (via AudiobookOrchestrator)
+ * - Southern Belle personality responses (via SouthernBellePersonality)
+ * - Button-based UI enforcement and session management
+ * - Download monitoring and progress tracking
+ * 
+ * Features:
+ * - Intelligent button enforcement to guide users through proper UI flow
+ * - Session-based user state tracking across conversations
+ * - Comprehensive error handling with graceful fallbacks
+ * - Integration with Readarr, Prowlarr, and qBittorrent services
+ */
 export class MessageHandler {
   private orchestrator: AudiobookOrchestrator;
   private sessions = new Map<string, UserSession>();
@@ -183,59 +198,6 @@ export class MessageHandler {
     
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons1));
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons2));
-    
-    return rows;
-  }
-
-  private createSearchResultButtons(results: any[], startIndex: number, hasNextPage: boolean): ActionRowBuilder<ButtonBuilder>[] {
-    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-    
-    // Create numbered buttons for up to 5 results (Discord's limit per row)
-    const buttons: ButtonBuilder[] = [];
-    for (let i = 0; i < Math.min(results.length, 5); i++) {
-      const buttonNumber = startIndex + i + 1;
-      buttons.push(
-        new ButtonBuilder()
-          .setCustomId(`download_${buttonNumber}`)
-          .setLabel(`${buttonNumber}`)
-          .setStyle(ButtonStyle.Primary)
-      );
-    }
-    
-    // Add buttons to row
-    if (buttons.length > 0) {
-      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
-    }
-    
-    // Add navigation buttons if needed
-    const navButtons: ButtonBuilder[] = [];
-    
-    if (hasNextPage) {
-      navButtons.push(
-        new ButtonBuilder()
-          .setCustomId('next_page')
-          .setLabel('Next')
-          .setStyle(ButtonStyle.Secondary)
-      );
-    }
-    
-    navButtons.push(
-      new ButtonBuilder()
-        .setCustomId('more_info')
-        .setLabel('📖 More Info')
-        .setStyle(ButtonStyle.Secondary)
-    );
-    
-    navButtons.push(
-      new ButtonBuilder()
-        .setCustomId('new_search')
-        .setLabel('New Search')
-        .setStyle(ButtonStyle.Success)
-    );
-    
-    if (navButtons.length > 0) {
-      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
-    }
     
     return rows;
   }
@@ -493,7 +455,7 @@ export class MessageHandler {
             };
             
             const response = this.formatPaginatedResults(pageResults, nextPage + 1, totalPages, session.allResults.length, hasNextPage, startIndex);
-            const buttons = this.createSearchResultButtons(pageResults, startIndex, hasNextPage);
+            const buttons = createSearchResultButtons(pageResults, startIndex, hasNextPage);
             
             await interaction.reply({ 
               content: response, 
@@ -576,7 +538,7 @@ export class MessageHandler {
               .map((book, index) => formatBook(book.title, book.author, index + 1))
               .join('\n');
               
-          const buttons = this.createSearchResultButtons(validatedResponse.results, 0, (session.allResults?.length || 0) > 5);
+          const buttons = createSearchResultButtons(validatedResponse.results, 0, (session.allResults?.length || 0) > 5);
           
           await interaction.followUp({ 
             content: responseMsg,
@@ -750,7 +712,7 @@ export class MessageHandler {
         
         // Format the message exactly like search results
         const formattedResults = this.formatPaginatedResults(visibleBooks, currentPage, totalPages, totalResults, hasNextPage, startIndex);
-        const buttons = this.createSearchResultButtons(visibleBooks, startIndex, hasNextPage);
+        const buttons = createSearchResultButtons(visibleBooks, startIndex, hasNextPage);
         
         await interaction.reply({ 
           content: formattedResults,
@@ -777,6 +739,24 @@ export class MessageHandler {
     }
   }
 
+  /**
+   * Main message processing method that handles all incoming Discord messages.
+   * 
+   * Process flow:
+   * 1. Filters out bot messages and checks for bot mentions/name references
+   * 2. Manages user sessions and button enforcement logic
+   * 3. Sanitizes and processes user queries through the orchestrator
+   * 4. Applies Southern Belle personality to responses
+   * 5. Sends formatted responses with appropriate buttons and UI elements
+   * 
+   * Features:
+   * - Smart button enforcement to guide users through proper interaction flow
+   * - Session persistence across conversations with individual users
+   * - Comprehensive error handling with personality-appropriate responses
+   * - Support for greetings, help requests, and direct audiobook searches
+   * 
+   * @param message - Discord message object containing user input and metadata
+   */
   async handle(message: Message) {
     if (message.author.bot) return;
 
@@ -852,7 +832,7 @@ export class MessageHandler {
           };
           
           const response = this.formatPaginatedResults(pageResults, nextPage + 1, totalPages, session.allResults.length, hasNextPage, startIndex);
-          const buttons = this.createSearchResultButtons(pageResults, startIndex, hasNextPage);
+          const buttons = createSearchResultButtons(pageResults, startIndex, hasNextPage);
           
           await message.reply({ 
             content: response, 
@@ -984,7 +964,7 @@ export class MessageHandler {
       if (validatedResponse.results.length > 0 && validatedResponse.intent === 'FIND_BY_TITLE') {
         const startIndex = session.currentPage ? session.currentPage * 5 : 0;
         const hasNextPage = session.allResults ? session.allResults.length > (startIndex + 5) : false;
-        const buttons = this.createSearchResultButtons(validatedResponse.results, startIndex, hasNextPage);
+        const buttons = createSearchResultButtons(validatedResponse.results, startIndex, hasNextPage);
         
         await message.reply({ 
           content: responseMsg, 

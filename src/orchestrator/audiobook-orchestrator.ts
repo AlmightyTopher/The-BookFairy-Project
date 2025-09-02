@@ -14,6 +14,15 @@ import { checkQbittorrentHealth } from '../clients/qbittorrent-client';
 import { downloadMonitor } from '../services/download-monitor';
 
 export class AudiobookOrchestrator {
+  /**
+   * Main entry point for processing audiobook requests from users.
+   * Uses intelligent rule-based parsing to understand user intent without requiring LLM.
+   * Handles various request patterns including simple searches, "similar to" requests,
+   * and complex queries with authors, genres, and formats.
+   * 
+   * @param query - The user's natural language query (e.g., "find fantasy books", "something like dune")
+   * @returns Promise<BookFairyResponseT> - Structured response with search results and recommendations
+   */
   async handleRequest(query: string) {
     logger.info({ query }, 'Processing request using rule-based parsing (LLM-free)');
     
@@ -708,10 +717,19 @@ export class AudiobookOrchestrator {
   }
 
   // Test compatibility methods - provide expected interface for tests
+  /**
+   * Alias for handleRequest() to maintain compatibility with existing tests.
+   * @param query - User search query
+   * @returns Promise<BookFairyResponseT> - Search results
+   */
   async searchBooks(query: string) {
     return this.handleRequest(query);
   }
 
+  /**
+   * Gets current download status from the download monitor service.
+   * @returns Object containing active download count and tracked downloads
+   */
   async getDownloadStatus() {
     // Return current download status from monitor
     return {

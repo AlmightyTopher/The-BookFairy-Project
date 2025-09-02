@@ -3,9 +3,8 @@ import { MessageHandler } from './bot/message-handler';
 import { installQuickActions, handleQuickActionMessage } from './quick-actions';
 import { setDiscordClient, setMessageHandler } from './bridge/dispatch';
 import { config } from './config/config';
-import { logger } from './utils/logger';
+import { logger, withReqId } from './utils/logger';
 import { startMetrics, requests } from './metrics/server';
-import { withReqId } from './lib/logger';
 import { randomUUID } from 'crypto';
 import { downloadMonitor } from './services/download-monitor';
 
