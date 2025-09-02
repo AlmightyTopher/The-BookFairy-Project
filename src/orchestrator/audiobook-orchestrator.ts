@@ -13,6 +13,11 @@ import { checkProwlarrHealth } from '../clients/prowlarr-client';
 import { checkQbittorrentHealth } from '../clients/qbittorrent-client';
 import { downloadMonitor } from '../services/download-monitor';
 
+/**
+ * Core orchestrator for audiobook discovery and download management.
+ * Handles natural language processing, book recommendations, and torrent management.
+ * Integrates Readarr for metadata, Prowlarr for search, and qBittorrent for downloads.
+ */
 export class AudiobookOrchestrator {
   /**
    * Main entry point for processing audiobook requests from users.
@@ -654,8 +659,9 @@ export class AudiobookOrchestrator {
         const result = await addTorrent(downloadUrl);
         
         if (result.success && result.hash && userId && channelId) {
-          // Track the download for completion notifications
-          downloadMonitor.trackDownload(result.hash, result.name || bookTitle, userId, channelId);
+          // Track the download for completion notifications with search query for retries
+          const searchQuery = bookTitle;
+          downloadMonitor.trackDownload(result.hash, result.name || bookTitle, userId, channelId, searchQuery);
           logger.info({ 
             torrent: { title: bookTitle, url: downloadUrl, hash: result.hash },
             userId 
@@ -695,8 +701,9 @@ export class AudiobookOrchestrator {
       const result = await addTorrent(exactMatch.downloadUrl);
       
       if (result.success && result.hash && userId && channelId) {
-        // Track the download for completion notifications
-        downloadMonitor.trackDownload(result.hash, result.name || exactMatch.title, userId, channelId);
+        // Track the download for completion notifications with search query for retries
+        const searchQuery = bookTitle;
+        downloadMonitor.trackDownload(result.hash, result.name || exactMatch.title, userId, channelId, searchQuery);
         logger.info({ 
           torrent: { title: exactMatch.title, url: exactMatch.downloadUrl, hash: result.hash },
           userId 

@@ -9,15 +9,26 @@ import { downloadMonitor } from '../services/download-monitor';
 import { SouthernBellePersonality_Test } from '../personality/southern-belle-test';
 import { createSearchResultButtons } from '../utils/discord-ui';
 
+/**
+ * Tracks user conversation state and interaction history
+ */
 interface UserSession {
+  /** Last Book Fairy response provided to the user */
   lastResponse?: BookFairyResponseT;
+  /** Timestamp of the user's last interaction */
   lastInteractionTime?: Date;
+  /** Number of searches performed in this session */
   searchCount: number;
+  /** Whether search results have been displayed */
   hasShownResults: boolean;
+  /** Whether a download is currently pending */
   pendingDownload?: boolean;
+  /** Current page number for paginated results */
   currentPage?: number;
+  /** Complete set of search results for pagination */
   allResults?: any[];
-  moreInfoMode?: boolean; // Track if user is in "more info" mode
+  /** Whether user is requesting detailed book information */
+  moreInfoMode?: boolean;
   // New fields for button enforcement
   typingAttempts?: number;
   lastButtonInteraction?: Date;
@@ -146,6 +157,10 @@ export class MessageHandler {
       new ButtonBuilder()
         .setCustomId('check_downloads')
         .setLabel('📥 My Downloads')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('show_help')
+        .setLabel('❓ Help')
         .setStyle(ButtonStyle.Secondary)
     ];
     
@@ -236,7 +251,8 @@ export class MessageHandler {
       /^(downloads?|status)$/i,
       /^\d+$/,
       /^(yes|yeah|sure|ok|okay|yep|y)$/i,
-      /^(no|nope|n)$/i
+      /^(no|nope|n)$/i,
+      /^!fairy\s+(help|cancel).*$/i  // Admin commands
     ];
 
     const isCommand = legitimateCommands.some(regex => regex.test(query.trim()));
@@ -344,6 +360,100 @@ export class MessageHandler {
     
     // Reset the download flag after completion
     session.pendingDownload = false;
+  }
+
+  /**
+   * Handles admin commands like !fairy help and !fairy cancel
+   * @param message - Discord message containing the admin command
+   * @param query - The full command string
+   */
+  private async handleAdminCommand(message: Message, query: string): Promise<void> {
+    const args = query.toLowerCase().trim().split(/\s+/);
+    const command = args[1]; // First arg after "!fairy"
+    
+    try {
+      switch (command) {
+        case 'help':
+          await this.handleHelpCommand(message, args);
+          break;
+        case 'cancel':
+          await this.handleCancelCommand(message, args);
+          break;
+        default:
+          const unknownMessage = this.personality.transformMessage_test(
+            "Well honey, I don't know that command. Try `!fairy help` to see what I can do for you.", 
+            'error'
+          );
+          await message.reply(unknownMessage);
+      }
+    } catch (error) {
+      logger.error({ error }, 'Error handling admin command');
+      const errorMessage = this.personality.transformMessage_test(
+        "Mercy me, somethin' went sideways with that command. Try again, darlin'.", 
+        'error'
+      );
+      await message.reply(errorMessage);
+    }
+  }
+
+  /**
+   * Handles the !fairy help command
+   */
+  private async handleHelpCommand(messageOrInteraction: Message | ButtonInteraction, args: string[]): Promise<void> {
+    const helpMessage = `**🧚‍♀️ Book Fairy Help - Southern Belle Edition**
+
+**Basic Commands:**
+• Just mention me and tell me what books you want! *(Example: "find me some fantasy books")*
+• Type a number to download a book from search results
+• Use the buttons - I'm much better with those, sugar! 
+
+**Admin Commands:**
+• \`!fairy help\` - Show this help menu (what you're seein' now)
+• \`!fairy cancel <id>\` - Cancel a download job *(coming real soon, darlin')*
+
+**Quick Tips:**
+• Type "downloads" or "status" to see what's cookin'
+• Type "next" to see more search results
+• I work best when you use my pretty buttons! 💅
+
+**Need More Help?**
+Contact an administrator if you're havin' trouble. I'm just a fairy, after all! ✨
+
+*Bless your heart for askin' - now get to searchin'!* 📚`;
+
+    const personalityMessage = this.personality.transformMessage_test(helpMessage, 'presenting');
+    
+    if ('reply' in messageOrInteraction && 'author' in messageOrInteraction) {
+      // It's a Message
+      await messageOrInteraction.reply(personalityMessage);
+    } else {
+      // It's a ButtonInteraction
+      await (messageOrInteraction as ButtonInteraction).reply({ 
+        content: personalityMessage, 
+        flags: MessageFlags.Ephemeral 
+      });
+    }
+  }
+
+  /**
+   * Handles the !fairy cancel command (placeholder for now)
+   */
+  private async handleCancelCommand(message: Message, args: string[]): Promise<void> {
+    if (args.length < 3) {
+      const helpMessage = this.personality.transformMessage_test(
+        "Sugar, you need to tell me which download to cancel. Try `!fairy cancel <id>` (though I haven't learned that trick yet).", 
+        'error'
+      );
+      await message.reply(helpMessage);
+      return;
+    }
+
+    // For now, just acknowledge the command since we need download ID tracking
+    const comingSoonMessage = this.personality.transformMessage_test(
+      "Well bless your heart, darlin'! That feature's still cookin' in my spell book. Check back real soon!", 
+      'ready'
+    );
+    await message.reply(comingSoonMessage);
   }
 
   async handleButtonInteraction(interaction: ButtonInteraction) {
@@ -600,6 +710,10 @@ export class MessageHandler {
 
         await interaction.reply({ content: statusMessage, flags: MessageFlags.Ephemeral });
         
+      } else if (interaction.customId === 'show_help') {
+        // Use the same help content as the !fairy help command
+        await this.handleHelpCommand(interaction, ['!fairy', 'help']);
+        
       } else if (interaction.customId === 'more_info') {
         // Show Goodreads links in the same format as search results
         const session = this.getSession(interaction.user.id);
@@ -798,6 +912,12 @@ export class MessageHandler {
         
         // Mark that buttons have been shown
         this.markButtonsShown(message.author.id);
+        return;
+      }
+
+      // Handle admin commands
+      if (query.startsWith('!fairy ')) {
+        await this.handleAdminCommand(message, query);
         return;
       }
 

@@ -72,6 +72,15 @@ export const config = {
     duplicateRequestWindow: parseInt(process.env.DUPLICATE_WINDOW || '300000'),
   },
 
+  // Audiobookshelf Configuration
+  audiobookshelf: {
+    baseUrl: process.env.AUDIOBOOKSHELF_URL || 'http://localhost:13378',
+    apiKey: process.env.AUDIOBOOKSHELF_API_KEY || '',
+    timeout: parseInt(process.env.AUDIOBOOKSHELF_TIMEOUT || '10000'),
+    libraryId: process.env.AUDIOBOOKSHELF_LIBRARY_ID || '',
+    enabled: process.env.AUDIOBOOKSHELF_ENABLED === 'true',
+  },
+
   // Retry Configuration
   retry: {
     maxAttempts: parseInt(process.env.RETRY_MAX_ATTEMPTS || '3'),
