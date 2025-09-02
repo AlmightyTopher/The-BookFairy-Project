@@ -49,8 +49,24 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+let serverStarted = false;
+
 export function startMetrics(port = 9090): void {
+  if (serverStarted) {
+    logger.info({ port }, 'Metrics server already started, skipping');
+    return;
+  }
+
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.warn({ port, error: error.message }, 'Metrics port already in use, skipping server start');
+      return;
+    }
+    logger.error({ port, error }, 'Metrics server error');
+  });
+
   server.listen(port, () => {
+    serverStarted = true;
     logger.info({ port }, 'Metrics server started');
   });
 }

@@ -1002,4 +1002,13 @@ export class MessageHandler {
       await message.reply(personalityErrorMessage);
     }
   }
+
+  // Test compatibility methods - provide expected interface for tests
+  async handleMessage(message: Message) {
+    return this.handle(message);
+  }
+
+  async handleInteraction(interaction: ButtonInteraction) {
+    return this.handleButtonInteraction(interaction);
+  }
 }

@@ -706,4 +706,17 @@ export class AudiobookOrchestrator {
       return { success: false, error: error.message };
     }
   }
+
+  // Test compatibility methods - provide expected interface for tests
+  async searchBooks(query: string) {
+    return this.handleRequest(query);
+  }
+
+  async getDownloadStatus() {
+    // Return current download status from monitor
+    return {
+      activeDownloads: downloadMonitor.getActiveDownloadsCount(),
+      trackedDownloads: downloadMonitor.getTrackedDownloads()
+    };
+  }
 }

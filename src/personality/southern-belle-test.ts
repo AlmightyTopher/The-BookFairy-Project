@@ -1,5 +1,8 @@
-// # Proposed Test Version
-// Test implementation of Southern Belle personality system
+// # Test Version - Phrasebook Integration
+// Test implementation of Southern Belle personality system with external phrasebook loading
+
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface PersonalityResponse {
   message: string;
@@ -15,6 +18,11 @@ interface UserState {
 
 export class SouthernBellePersonality_Test {
   private userStates = new Map<string, UserState>();
+  private phrasebook: { [key: string]: string[] } = {};
+
+  constructor() {
+    this.loadPhrasebook();
+  }
 
   // Tech terms to magic translations
   private techToMagic = {
@@ -32,7 +40,8 @@ export class SouthernBellePersonality_Test {
     'timeout': 'charm wearing off'
   };
 
-  private phrasebook = {
+  // Fallback phrasebook with Southern Belle personality (used if external file fails to load)
+  private fallbackPhrasebook = {
     welcome: [
       "Well hey there, sugar! Aren't you just sweeter than sweet tea for stoppin' by! I'm your very own Book Fairy, ready to help you find the most delightful audiobooks this side of heaven.",
       "Bless your heart for visitin'! I'm fixin' to help you discover some absolutely enchanting stories. What kind of magic are we conjurin' up today, darlin'?",
@@ -88,6 +97,92 @@ export class SouthernBellePersonality_Test {
     ]
   };
 
+  /**
+   * Test Implementation: Load phrasebook from external JSON file
+   * Applies Southern Belle personality transformation to loaded phrases
+   * Falls back to hardcoded phrases if loading fails
+   */
+  private loadPhrasebook(): void {
+    try {
+      const phrasebookPath = path.join(__dirname, '../../data/phrasebook.json');
+      const phrasebookData = JSON.parse(fs.readFileSync(phrasebookPath, 'utf8'));
+      
+      // Transform basic phrases into Southern Belle personality
+      this.phrasebook = this.transformToSouthernBelle(phrasebookData);
+      
+      console.log('✅ [TEST] External phrasebook loaded and transformed successfully');
+    } catch (error) {
+      console.warn('⚠️ [TEST] Failed to load external phrasebook, using fallback:', error);
+      this.phrasebook = this.fallbackPhrasebook;
+    }
+  }
+
+  /**
+   * Test Implementation: Transform basic phrases into Southern Belle personality
+   */
+  private transformToSouthernBelle(basicPhrasebook: any): { [key: string]: string[] } {
+    const transformed: { [key: string]: string[] } = {};
+    
+    // Map external phrasebook categories to our Southern Belle versions  
+    const categoryMapping: { [key: string]: string } = {
+      'welcome': 'welcome',
+      'searching': 'searching', 
+      'found_results': 'presenting',
+      'download_started': 'downloading',
+      'download_completed': 'ready',
+      'error_generic': 'error',
+      'polite_nudge': 'buttonRedirect'
+    };
+
+    // Transform each category that exists in external file
+    for (const [externalKey, localKey] of Object.entries(categoryMapping)) {
+      if (basicPhrasebook[externalKey] && typeof basicPhrasebook[externalKey] === 'string') {
+        // Convert single strings to arrays and apply Southern Belle transformation
+        const transformedPhrase = this.applySouthernBelleStyle(basicPhrasebook[externalKey]);
+        transformed[localKey] = [transformedPhrase];
+      } else {
+        // Use fallback if external category doesn't exist
+        transformed[localKey] = (this.fallbackPhrasebook as any)[localKey] || ['Well bless your heart, sugar!'];
+      }
+    }
+
+    // Ensure all required categories exist with fallbacks
+    const requiredCategories = ['welcome', 'searching', 'presenting', 'downloading', 'ready', 'error', 'buttonRedirect', 'escalation'];
+    for (const category of requiredCategories) {
+      if (!transformed[category]) {
+        transformed[category] = (this.fallbackPhrasebook as any)[category] || ['Well bless your heart, sugar!'];
+      }
+    }
+
+    return transformed;
+  }
+
+  /**
+   * Test Implementation: Apply Southern Belle style to a basic phrase
+   */
+  private applySouthernBelleStyle(basicPhrase: string): string {
+    // Simple transformation to add Southern Belle flair
+    const southernPhrases = [
+      'Well bless your heart, ',
+      'Sugar, ',
+      'Darlin\', ',
+      'Honey child, ',
+      'Sweet pea, '
+    ];
+    
+    const randomPrefix = southernPhrases[Math.floor(Math.random() * southernPhrases.length)];
+    
+    // Replace some basic terms with Southern alternatives
+    let transformed = basicPhrase
+      .replace(/searching/gi, 'rustlin\' through the spellbooks')
+      .replace(/magic/gi, 'fairy magic')
+      .replace(/found/gi, 'conjured up')
+      .replace(/download/gi, 'spell casting')
+      .replace(/error/gi, 'spell mishap');
+    
+    return randomPrefix + transformed;
+  }
+
   private getUserState(userId: string): UserState {
     if (!this.userStates.has(userId)) {
       this.userStates.set(userId, { typingAttempts: 0 });
@@ -97,6 +192,10 @@ export class SouthernBellePersonality_Test {
 
   private getRandomPhrase(category: keyof typeof this.phrasebook): string {
     const phrases = this.phrasebook[category];
+    if (!phrases || !Array.isArray(phrases) || phrases.length === 0) {
+      // Fallback to a default Southern Belle phrase
+      return "Well bless your heart, sugar! I'm havin' a little trouble with my spell book right now.";
+    }
     return phrases[Math.floor(Math.random() * phrases.length)];
   }
 
