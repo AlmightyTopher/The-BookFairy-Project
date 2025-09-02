@@ -1,0 +1,95 @@
+# Book Fairy Development Environment
+version: '3.8'
+
+services:
+  book-fairy-bot:
+    build: .
+    container_name: book-fairy-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - PROWLARR_API_KEY=${PROWLARR_API_KEY}
+      - PROWLARR_BASE_URL=${PROWLARR_BASE_URL}
+      - QBITTORRENT_HOST=${QBITTORRENT_HOST}
+      - QBITTORRENT_USERNAME=${QBITTORRENT_USERNAME}
+      - QBITTORRENT_PASSWORD=${QBITTORRENT_PASSWORD}
+      - READARR_API_KEY=${READARR_API_KEY}
+      - READARR_BASE_URL=${READARR_BASE_URL}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    ports:
+      - "3000:3000"  # Health check endpoint
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data:ro
+    networks:
+      - book-fairy-network
+    depends_on:
+      - qbittorrent
+      - prowlarr
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./downloads:/downloads
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    networks:
+      - book-fairy-network
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    volumes:
+      - ./config/prowlarr:/config
+    ports:
+      - "9696:9696"
+    networks:
+      - book-fairy-network
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+    volumes:
+      - ./config/readarr:/config
+      - ./downloads:/downloads
+      - ./audiobooks:/audiobooks
+    ports:
+      - "8787:8787"
+    networks:
+      - book-fairy-network
+
+networks:
+  book-fairy-network:
+    driver: bridge
+
+volumes:
+  qbittorrent-config:
+  prowlarr-config:
+  readarr-config:

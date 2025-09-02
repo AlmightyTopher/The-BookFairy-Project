@@ -7,6 +7,7 @@ import { shouldAskAuthorMore } from '../server/author_guard';
 import { sanitizeUserContent } from '../utils/sanitize';
 import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goodreads';
 import { downloadMonitor } from '../services/download-monitor';
+import { SouthernBellePersonality_Test } from '../personality/southern-belle-test';
 
 interface UserSession {
   lastResponse?: BookFairyResponseT;
@@ -17,14 +18,21 @@ interface UserSession {
   currentPage?: number;
   allResults?: any[];
   moreInfoMode?: boolean; // Track if user is in "more info" mode
+  // New fields for button enforcement
+  typingAttempts?: number;
+  lastButtonInteraction?: Date;
+  lastTypingAttempt?: Date;
+  shouldEnforceButtons?: boolean;
 }
 
 export class MessageHandler {
   private orchestrator: AudiobookOrchestrator;
   private sessions = new Map<string, UserSession>();
+  private personality: SouthernBellePersonality_Test;
 
   constructor() {
     this.orchestrator = new AudiobookOrchestrator();
+    this.personality = new SouthernBellePersonality_Test();
   }
 
   private getSession(userId: string): UserSession {
@@ -34,7 +42,9 @@ export class MessageHandler {
         hasShownResults: false,
         currentPage: 0,
         allResults: [],
-        moreInfoMode: false
+        moreInfoMode: false,
+        typingAttempts: 0,
+        shouldEnforceButtons: false
       });
     }
     return this.sessions.get(userId)!;
@@ -230,6 +240,71 @@ export class MessageHandler {
     return rows;
   }
 
+  // Check if user should be redirected to buttons
+  private shouldRedirectToButtons(userId: string, query: string): { shouldRedirect: boolean; message?: string } {
+    const session = this.getSession(userId);
+    
+    // Don't enforce buttons for legitimate commands
+    const isLegitimateCommand = this.isLegitimateTypedCommand(query, session);
+    if (isLegitimateCommand) {
+      return { shouldRedirect: false };
+    }
+    
+    // If user has been shown buttons and is typing instead of clicking
+    if (session.shouldEnforceButtons) {
+      const personalityResponse = this.personality.processTypingAttempt_test(userId, query);
+      
+      // Update session tracking
+      session.typingAttempts = (session.typingAttempts || 0) + 1;
+      session.lastTypingAttempt = new Date();
+      
+      return {
+        shouldRedirect: true,
+        message: personalityResponse.message
+      };
+    }
+    
+    return { shouldRedirect: false };
+  }
+
+  // Check if the typed input is a legitimate command
+  private isLegitimateTypedCommand(query: string, session: UserSession): boolean {
+    const legitimateCommands = [
+      /^next$/i,
+      /^(downloads?|status)$/i,
+      /^\d+$/,
+      /^(yes|yeah|sure|ok|okay|yep|y)$/i,
+      /^(no|nope|n)$/i
+    ];
+
+    const isCommand = legitimateCommands.some(regex => regex.test(query.trim()));
+    const isFirstInteraction = !session.hasShownResults && session.searchCount === 0 && !session.shouldEnforceButtons;
+    const isComplexQuery = query.length > 10 && !(/^(hi|hello|hey|help|\?)$/i.test(query.trim()));
+    const isSimpleGreeting = /^(hi|hello|hey|help|\?)$/i.test(query.trim());
+    
+    // Don't allow simple greetings if buttons have been shown
+    if (session.shouldEnforceButtons && isSimpleGreeting) {
+      return false;
+    }
+    
+    // Always allow complex queries (real searches) even after buttons shown
+    return isCommand || (isFirstInteraction && isComplexQuery) || (!isSimpleGreeting && isComplexQuery);
+  }
+
+  // Mark that buttons have been shown to user
+  private markButtonsShown(userId: string): void {
+    const session = this.getSession(userId);
+    session.shouldEnforceButtons = true;
+  }
+
+  // Reset button enforcement when user uses buttons
+  private resetButtonEnforcement(userId: string): void {
+    const session = this.getSession(userId);
+    session.typingAttempts = 0;
+    session.lastButtonInteraction = new Date();
+    this.personality.processButtonInteraction_test(userId);
+  }
+
   private shouldAskForAnotherSearch(session: UserSession): boolean {
     // Only ask if they've seen results and completed an interaction, but not immediately after download
     return session.hasShownResults && session.searchCount > 0 && !session.pendingDownload;
@@ -239,7 +314,9 @@ export class MessageHandler {
     const userDownloads = downloadMonitor.getUserDownloads(message.author.id);
     
     if (userDownloads.length === 0) {
-      await message.reply("📥 You don't have any downloads being tracked right now.\n\nStart a download by searching for a book and selecting one!");
+      const noDownloadsMessage = "📥 You don't have any downloads being tracked right now.\n\nStart a download by searching for a book and selecting one!";
+      const personalityMessage = this.personality.transformMessage_test(noDownloadsMessage, 'error');
+      await message.reply(personalityMessage);
       return;
     }
 
@@ -298,7 +375,9 @@ export class MessageHandler {
       
       await message.reply(responseMessage);
     } else {
-      await message.reply(`❌ Failed to download "${selectedBook.title}": ${downloadResult.error}\n\nWould you like to try another book? Just ask me to search for it!`);
+      const errorMessage = `❌ Failed to download "${selectedBook.title}": ${downloadResult.error}\n\nWould you like to try another book? Just ask me to search for it!`;
+      const personalityErrorMessage = this.personality.transformMessage_test(errorMessage, 'error');
+      await message.reply(personalityErrorMessage);
     }
     
     // Reset the download flag after completion
@@ -307,6 +386,9 @@ export class MessageHandler {
 
   async handleButtonInteraction(interaction: ButtonInteraction) {
     try {
+      // Reset button enforcement when user uses buttons
+      this.resetButtonEnforcement(interaction.user.id);
+      
       const session = this.getSession(interaction.user.id);
       
       if (interaction.customId.startsWith('download_')) {
@@ -353,7 +435,10 @@ export class MessageHandler {
         // Mark that a download is pending
         session.pendingDownload = true;
         
-        await interaction.reply({ content: `🔄 Starting download for "${selectedBook.title}"...`, flags: MessageFlags.Ephemeral });
+        await interaction.reply({ 
+          content: this.personality.transformMessage_test(`🔄 Starting download for "${selectedBook.title}"...`, 'downloading'), 
+          flags: MessageFlags.Ephemeral 
+        });
         
         const downloadResult = await this.orchestrator.downloadBook(
           selectedBook.title, 
@@ -370,6 +455,9 @@ export class MessageHandler {
             responseMessage += `It'll be ready soon.\n\n`;
           }
           responseMessage += `Would you like to add another book? Just ask me to search for it!`;
+          
+          // Transform with personality
+          responseMessage = this.personality.transformMessage_test(responseMessage, 'downloading');
           
           await interaction.followUp({ 
             content: responseMessage,
@@ -462,7 +550,10 @@ export class MessageHandler {
         };
         
         const searchQuery = genreMap[genre] || `${genre} books`;
-        await interaction.reply({ content: `🔍 Searching for ${searchQuery}...`, flags: MessageFlags.Ephemeral });
+        await interaction.reply({ 
+          content: this.personality.transformMessage_test(`🔍 Searching for ${searchQuery}...`, 'searching'), 
+          flags: MessageFlags.Ephemeral 
+        });
         
         // Trigger search
         const result = await this.orchestrator.handleRequest(searchQuery);
@@ -492,8 +583,9 @@ export class MessageHandler {
             components: buttons
           });
         } else {
+          const noResultsMessage = `Sorry, I couldn't find any ${searchQuery}. Try a different genre or search by title/author.`;
           await interaction.followUp({ 
-            content: `Sorry, I couldn't find any ${searchQuery}. Try a different genre or search by title/author.`,
+            content: this.personality.transformMessage_test(noResultsMessage, 'error'),
             components: this.createWelcomeButtons()
           });
         }
@@ -715,9 +807,28 @@ export class MessageHandler {
       // If it's just a greeting or empty query, show welcome menu
       if (!query || query.length < 3 || /^(hi|hello|hey|help|\?)$/i.test(query.trim())) {
         const welcomeButtons = this.createWelcomeButtons();
+        
+        // Use personality for welcome message
+        const welcomeResponse = this.personality.generateButtonTreeResponse_test('welcome');
+        
         await message.reply({ 
-          content: "🪄 **Welcome to Book Fairy!** I help you find and download audiobooks.\n\nHow would you like to find your next audiobook?", 
+          content: welcomeResponse.message, 
           components: welcomeButtons 
+        });
+        
+        // Mark that buttons have been shown
+        this.markButtonsShown(message.author.id);
+        return;
+      }
+
+      // NEW: Check if user should be redirected to buttons
+      const redirectCheck = this.shouldRedirectToButtons(message.author.id, query);
+      if (redirectCheck.shouldRedirect) {
+        const welcomeButtons = this.createWelcomeButtons();
+        
+        await message.reply({
+          content: redirectCheck.message,
+          components: welcomeButtons
         });
         return;
       }
@@ -775,6 +886,14 @@ export class MessageHandler {
         query = `more books by ${session.lastResponse.seed_book.author}`;
       }
 
+      // If we get here, it's a legitimate search query - reset button enforcement
+      session.shouldEnforceButtons = false;
+      session.typingAttempts = 0;
+
+      // Send searching message with personality
+      const searchingMessage = this.personality.transformMessage_test(`Searching for "${query}"...`, 'searching');
+      await message.reply(searchingMessage);
+
       const result = await this.orchestrator.handleRequest(query);
       logger.info({ result: JSON.stringify(result, null, 2) }, 'Received result from orchestrator');
       
@@ -819,6 +938,9 @@ export class MessageHandler {
             
             responseMsg = `Found ${totalResults} audiobook(s) for "${validatedResponse.seed_book.title}":\n\n`;
             
+            // Transform the results message with personality
+            responseMsg = this.personality.transformMessage_test(responseMsg, 'presenting');
+            
             // Use pagination-aware formatting
             if (totalResults > 5) {
               const totalPages = Math.ceil(totalResults / 5);
@@ -850,8 +972,9 @@ export class MessageHandler {
             }
           }
         } else {
-          responseMsg = validatedResponse.clarifying_question || 
+          const errorMessage = validatedResponse.clarifying_question || 
             "I couldn't find any matching books. Could you tell me more about what you're looking for?";
+          responseMsg = this.personality.transformMessage_test(errorMessage, 'error');
         }
       }
 
@@ -874,7 +997,9 @@ export class MessageHandler {
       logger.info({}, 'Response sent to Discord successfully');
     } catch (error) {
       logger.error({ error }, 'Failed to handle request');
-      await message.reply('Sorry, something went wrong while processing your request. Please try again.');
+      const errorMessage = 'Sorry, something went wrong while processing your request. Please try again.';
+      const personalityErrorMessage = this.personality.transformMessage_test(errorMessage, 'error');
+      await message.reply(personalityErrorMessage);
     }
   }
 }
