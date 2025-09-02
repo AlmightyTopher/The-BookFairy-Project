@@ -26,9 +26,11 @@ Book Fairy Bot – Priority-Organized To-Do List
 - ❌ Auto retry alternates when torrent stalls
 - ❌ Audiobookshelf → playbook link integration
 - ❌ Download completion notifications (notify original requester when download finishes)
-- ❌ Docker containerization for production deployment (Dockerfile, docker-compose, environment configs)
-- ✅ Simplify bot output format (show only book title and author, clean presentation) - **Enhanced with format tag removal**
+- ✅ Docker containerization for production deployment (Dockerfile, docker-compose, environment configs)
+- ✅ Simplify bot output format (show only book title and author, clean presentation) - **Enhanced with format tag removal and series detection**
 - ✅ Goodreads integration (clickable link next to title for book details and reviews)
+- ✅ More Info button functionality restored and working across all search types (quick actions + regular messages)
+- ✅ Enhanced text cleaning and series detection with bold formatting for multi-book collections
 
 ### 🎭 PRIORITY 2: USER EXPERIENCE (High Impact)
 
@@ -239,3 +241,8 @@ Book Fairy Bot – Priority-Organized To-Do List
 - Slash commands  
 - Audiobookshelf integration
 - Role-based controls
+
+**Needs added to flow**
+- ❌ Refactor repo to smallest readable form without changing behavior, remove dead code and duplication, keep APIs stable, add concise inline comments and docstrings, no obfuscation, all tests must pass.
+
+--

@@ -59,6 +59,13 @@ function createSearchResultButtons(results: any[], startIndex: number, hasNextPa
   
   navButtons.push(
     new ButtonBuilder()
+      .setCustomId('more_info')
+      .setLabel('📖 More Info')
+      .setStyle(ButtonStyle.Secondary)
+  );
+  
+  navButtons.push(
+    new ButtonBuilder()
       .setCustomId('new_search')
       .setLabel('New Search')
       .setStyle(ButtonStyle.Success)
@@ -153,7 +160,7 @@ export async function dispatchUserQuery(payload: UserQueryPayload): Promise<void
             logger.info({ responseLength: response.length, channelId: payload.channelId }, 'Sending response to Discord');
             
             // Check if this is a search result that should have buttons
-            if (result && typeof result === 'object' && 'results' in result && result.results && result.results.length > 0 && result.intent === 'FIND_BY_TITLE') {
+            if (result && typeof result === 'object' && 'results' in result && result.results && result.results.length > 0) {
               const pagination = (result as any).pagination;
               const startIndex = pagination ? (pagination.currentPage * 5) : 0;
               const hasNextPage = pagination ? pagination.hasNextPage : false;

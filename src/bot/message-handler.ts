@@ -446,23 +446,124 @@ export class MessageHandler {
         // Handle similar to genre search...
         
       } else if (interaction.customId === 'more_info') {
-        // Toggle "more info mode" and update the message
+        // Show Goodreads links in the same format as search results
         const session = this.getSession(interaction.user.id);
-        session.moreInfoMode = !session.moreInfoMode;
         
-        if (session.moreInfoMode) {
-          // Show instructions for info mode
-          await interaction.reply({ 
-            content: `📖 **Information Mode Activated**\n\nNow click any number (1-5) to view Goodreads information for that book instead of downloading.\n\n*Click "📖 More Info" again to return to download mode.*`, 
-            flags: MessageFlags.Ephemeral 
-          });
-        } else {
-          // Back to download mode
-          await interaction.reply({ 
-            content: `📥 **Download Mode Activated**\n\nNow click any number (1-5) to download that book.\n\n*Click "📖 More Info" to view book information instead.*`, 
-            flags: MessageFlags.Ephemeral 
-          });
+        // Get current visible books and pagination info
+        let visibleBooks: any[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        let totalResults = 0;
+        let startIndex = 0;
+        
+        if (session.lastResponse?.results) {
+          visibleBooks = session.lastResponse.results.slice(0, 5);
+          totalResults = session.allResults?.length || visibleBooks.length;
+          
+          // Calculate pagination from session data
+          if (session.currentPage !== undefined && session.allResults) {
+            currentPage = session.currentPage + 1; // Convert from 0-based to 1-based
+            totalPages = Math.ceil(session.allResults.length / 5);
+            startIndex = session.currentPage * 5;
+          }
+        } else if (session.allResults) {
+          visibleBooks = session.allResults.slice(0, 5);
+          totalResults = session.allResults.length;
+          totalPages = Math.ceil(session.allResults.length / 5);
         }
+        
+        if (visibleBooks.length === 0) {
+          await interaction.reply({ 
+            content: `❌ No books available to show information for. Please search for books first.`, 
+            flags: MessageFlags.Ephemeral 
+          });
+          return;
+        }
+        
+        // Format the message exactly like search results but for Goodreads
+        let responseMsg = `📖 **Goodreads Information**\n\nShowing ${startIndex + 1}-${startIndex + visibleBooks.length} of ${totalResults} results (Page ${currentPage}/${totalPages}):\n\n`;
+        
+        responseMsg += visibleBooks
+          .map((book, index) => formatBook(book.title, book.author, startIndex + index + 1))
+          .join('\n');
+        
+        responseMsg += `\n\nClick a number below to view that book on Goodreads!`;
+        
+        // Create numbered Goodreads buttons (1-5) that mirror the download buttons
+        const goodreadsButtons: ButtonBuilder[] = [];
+        visibleBooks.forEach((book, index) => {
+          const goodreadsUrl = generateGoodreadsUrl(book.title, book.author);
+          const button = new ButtonBuilder()
+            .setLabel(`${startIndex + index + 1}`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(goodreadsUrl);
+          goodreadsButtons.push(button);
+        });
+        
+        // Create action row for numbered buttons
+        const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(goodreadsButtons);
+        
+        // Add a "Back to Downloads" button
+        const backToDownloadsButton = new ButtonBuilder()
+          .setCustomId('back_to_downloads')
+          .setLabel('📥 Back to Downloads')
+          .setStyle(ButtonStyle.Secondary);
+        
+        const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(backToDownloadsButton);
+        
+        await interaction.reply({ 
+          content: responseMsg,
+          components: [actionRow, backRow],
+          flags: MessageFlags.Ephemeral 
+        });
+        
+      } else if (interaction.customId === 'back_to_downloads') {
+        // Show the same search results but with download functionality
+        const session = this.getSession(interaction.user.id);
+        
+        // Get current visible books and pagination info (same logic as More Info)
+        let visibleBooks: any[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        let totalResults = 0;
+        let startIndex = 0;
+        let hasNextPage = false;
+        
+        if (session.lastResponse?.results) {
+          visibleBooks = session.lastResponse.results.slice(0, 5);
+          totalResults = session.allResults?.length || visibleBooks.length;
+          
+          // Calculate pagination from session data
+          if (session.currentPage !== undefined && session.allResults) {
+            currentPage = session.currentPage + 1; // Convert from 0-based to 1-based
+            totalPages = Math.ceil(session.allResults.length / 5);
+            startIndex = session.currentPage * 5;
+            hasNextPage = (session.currentPage + 1) < totalPages;
+          }
+        } else if (session.allResults) {
+          visibleBooks = session.allResults.slice(0, 5);
+          totalResults = session.allResults.length;
+          totalPages = Math.ceil(session.allResults.length / 5);
+          hasNextPage = totalPages > 1;
+        }
+        
+        if (visibleBooks.length === 0) {
+          await interaction.reply({ 
+            content: `❌ No books available. Please search for books first.`, 
+            flags: MessageFlags.Ephemeral 
+          });
+          return;
+        }
+        
+        // Format the message exactly like search results
+        const formattedResults = this.formatPaginatedResults(visibleBooks, currentPage, totalPages, totalResults, hasNextPage, startIndex);
+        const buttons = this.createSearchResultButtons(visibleBooks, startIndex, hasNextPage);
+        
+        await interaction.reply({ 
+          content: formattedResults,
+          components: buttons,
+          flags: MessageFlags.Ephemeral 
+        });
         
       } else if (interaction.customId === 'back_to_main') {
         // Reset more info mode and show welcome menu
