@@ -1,11 +1,10 @@
-import { jest } from '@jest/globals';
+import { beforeEach, vi } from 'vitest';
 
-// Global test timeout
-jest.setTimeout(30000);
+// Global test timeout is configured in vitest.config.ts
 
 // Clear mocks before each test
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
 });
 
 // Setup global error handlers

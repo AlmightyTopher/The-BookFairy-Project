@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { BookFairyResponse, BookFairyResponseT } from '../schemas/book_fairy_response.schema';
 import { needsClarification } from '../server/clarify_policy';
 import { shouldAskAuthorMore } from '../server/author_guard';
+import { sanitizeUserContent } from '../utils/sanitize';
 
 interface UserSession {
   lastResponse?: BookFairyResponseT;
@@ -82,6 +83,92 @@ export class MessageHandler {
     return responseMsg;
   }
 
+  private createWelcomeButtons(): ActionRowBuilder<ButtonBuilder>[] {
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    
+    // Primary search options
+    const searchButtons = [
+      new ButtonBuilder()
+        .setCustomId('search_by_title')
+        .setLabel('📚 Search by Title')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('search_by_author')
+        .setLabel('✍️ Search by Author')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('browse_genres')
+        .setLabel('🎭 Browse Genres')
+        .setStyle(ButtonStyle.Secondary)
+    ];
+    
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(searchButtons));
+    
+    // Quick actions
+    const quickButtons = [
+      new ButtonBuilder()
+        .setCustomId('recommend_popular')
+        .setLabel('🔥 Popular Books')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('recommend_new')
+        .setLabel('✨ New Releases')
+        .setStyle(ButtonStyle.Success)
+    ];
+    
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(quickButtons));
+    
+    return rows;
+  }
+
+  private createGenreButtons(): ActionRowBuilder<ButtonBuilder>[] {
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    
+    // Popular genres
+    const genreButtons1 = [
+      new ButtonBuilder()
+        .setCustomId('genre_fantasy')
+        .setLabel('🧙 Fantasy')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('genre_scifi')
+        .setLabel('🚀 Sci-Fi')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('genre_mystery')
+        .setLabel('🔍 Mystery')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('genre_romance')
+        .setLabel('💕 Romance')
+        .setStyle(ButtonStyle.Primary)
+    ];
+    
+    const genreButtons2 = [
+      new ButtonBuilder()
+        .setCustomId('genre_thriller')
+        .setLabel('⚡ Thriller')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('genre_biography')
+        .setLabel('👤 Biography')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('genre_history')
+        .setLabel('📜 History')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('back_to_main')
+        .setLabel('⬅️ Back')
+        .setStyle(ButtonStyle.Secondary)
+    ];
+    
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons1));
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons2));
+    
+    return rows;
+  }
+
   private createSearchResultButtons(results: any[], startIndex: number, hasNextPage: boolean): ActionRowBuilder<ButtonBuilder>[] {
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     
@@ -144,7 +231,7 @@ export class MessageHandler {
     // Mark that a download is pending to prevent immediate re-prompting
     session.pendingDownload = true;
     
-    const downloadResult = await this.orchestrator.downloadBook(selectedBook.title);
+    const downloadResult = await this.orchestrator.downloadBook(selectedBook.title, selectedBook.downloadUrl);
     
     if (downloadResult.success) {
       await message.reply(`✅ Started downloading "${selectedBook.title}"! It'll be ready soon.\n\nWould you like to add another book? Just ask me to search for it!`);
@@ -183,7 +270,7 @@ export class MessageHandler {
         
         await interaction.reply({ content: `🔄 Starting download for "${selectedBook.title}"...`, flags: MessageFlags.Ephemeral });
         
-        const downloadResult = await this.orchestrator.downloadBook(selectedBook.title);
+        const downloadResult = await this.orchestrator.downloadBook(selectedBook.title, selectedBook.downloadUrl);
         
         if (downloadResult.success) {
           await interaction.followUp({ 
@@ -233,8 +320,100 @@ export class MessageHandler {
         }
         
       } else if (interaction.customId === 'new_search') {
+        // Show welcome menu instead of just text
+        const welcomeButtons = this.createWelcomeButtons();
         await interaction.reply({ 
-          content: "What book would you like to search for next?", 
+          content: "🪄 **Welcome to Book Fairy!** How would you like to find your next audiobook?", 
+          components: welcomeButtons,
+          flags: MessageFlags.Ephemeral 
+        });
+        
+      } else if (interaction.customId === 'search_by_title') {
+        await interaction.reply({ 
+          content: "📚 **Search by Title**\nPlease type the book title you're looking for:", 
+          flags: MessageFlags.Ephemeral 
+        });
+        
+      } else if (interaction.customId === 'search_by_author') {
+        await interaction.reply({ 
+          content: "✍️ **Search by Author**\nPlease type the author's name:", 
+          flags: MessageFlags.Ephemeral 
+        });
+        
+      } else if (interaction.customId === 'browse_genres') {
+        const genreButtons = this.createGenreButtons();
+        await interaction.reply({ 
+          content: "🎭 **Browse by Genre**\nChoose a genre you're interested in:", 
+          components: genreButtons,
+          flags: MessageFlags.Ephemeral 
+        });
+        
+      } else if (interaction.customId.startsWith('genre_')) {
+        const genre = interaction.customId.replace('genre_', '');
+        const genreMap: { [key: string]: string } = {
+          'fantasy': 'fantasy books',
+          'scifi': 'science fiction books',
+          'mystery': 'mystery books',
+          'romance': 'romance books',
+          'thriller': 'thriller books',
+          'biography': 'biography books',
+          'history': 'history books'
+        };
+        
+        const searchQuery = genreMap[genre] || `${genre} books`;
+        await interaction.reply({ content: `🔍 Searching for ${searchQuery}...`, flags: MessageFlags.Ephemeral });
+        
+        // Trigger search
+        const result = await this.orchestrator.handleRequest(searchQuery);
+        
+        if (result && 'results' in result && result.results.length > 0) {
+          const validatedResponse = BookFairyResponse.parse(result);
+          this.updateSession({ author: { id: interaction.user.id } } as Message, validatedResponse);
+          
+          // Store all results for pagination  
+          const session = this.getSession(interaction.user.id);
+          if (validatedResponse.results.length > 5) {
+            session.allResults = validatedResponse.results;
+            session.currentPage = 0;
+            const firstPageResults = validatedResponse.results.slice(0, 5);
+            validatedResponse.results = firstPageResults;
+          }
+          
+          const responseMsg = `Found ${session.allResults?.length || validatedResponse.results.length} ${searchQuery}:\n\n` +
+            validatedResponse.results
+              .map((book, index) => `${index + 1}. ${book.title}\n   ${book.why_similar}`)
+              .join('\n\n');
+              
+          const buttons = this.createSearchResultButtons(validatedResponse.results, 0, (session.allResults?.length || 0) > 5);
+          
+          await interaction.followUp({ 
+            content: responseMsg,
+            components: buttons
+          });
+        } else {
+          await interaction.followUp({ 
+            content: `Sorry, I couldn't find any ${searchQuery}. Try a different genre or search by title/author.`,
+            components: this.createWelcomeButtons()
+          });
+        }
+        
+      } else if (interaction.customId === 'recommend_popular') {
+        await interaction.reply({ content: `🔍 Finding popular audiobooks...`, flags: MessageFlags.Ephemeral });
+        
+        const result = await this.orchestrator.handleRequest('popular audiobooks');
+        // Handle similar to genre search...
+        
+      } else if (interaction.customId === 'recommend_new') {
+        await interaction.reply({ content: `🔍 Finding new releases...`, flags: MessageFlags.Ephemeral });
+        
+        const result = await this.orchestrator.handleRequest('new audiobook releases');
+        // Handle similar to genre search...
+        
+      } else if (interaction.customId === 'back_to_main') {
+        const welcomeButtons = this.createWelcomeButtons();
+        await interaction.reply({ 
+          content: "🪄 **Welcome to Book Fairy!** How would you like to find your next audiobook?", 
+          components: welcomeButtons,
           flags: MessageFlags.Ephemeral 
         });
       }
@@ -263,19 +442,24 @@ export class MessageHandler {
     try {
       const session = this.getSession(message.author.id);
       
-      // Remove bot mention and bot names from the message
+      // Remove bot mention and bot names from the message using the sanitization utility
       let query = message.content
         .replace(/<@!?\d+>/g, '') // Remove Discord user mentions
-        .replace(/@Book\s+Fairy/gi, '') // Remove @Book Fairy mentions
-        .replace(/Book\s+Fairy/gi, '') // Remove Book Fairy references
-        .replace(/Magical\s+Book\s+Fairy/gi, '') // Remove full bot name
-        .replace(/\bhey\b/gi, '') // Remove common greetings (word boundaries)
-        .replace(/\bhi\b/gi, '')
-        .replace(/\bhello\b/gi, '')
-        .replace(/,/g, '') // Remove commas
         .trim();
+      
+      query = sanitizeUserContent(query);
 
       logger.info({ query }, 'Processing book request');
+
+      // If it's just a greeting or empty query, show welcome menu
+      if (!query || query.length < 3 || /^(hi|hello|hey|help|\?)$/i.test(query.trim())) {
+        const welcomeButtons = this.createWelcomeButtons();
+        await message.reply({ 
+          content: "🪄 **Welcome to Book Fairy!** I help you find and download audiobooks.\n\nHow would you like to find your next audiobook?", 
+          components: welcomeButtons 
+        });
+        return;
+      }
 
       // Check for "next" command to show more results
       if (query.toLowerCase() === 'next' && session.allResults && session.allResults.length > 0) {
@@ -359,13 +543,20 @@ export class MessageHandler {
         if (validatedResponse.results.length > 0) {
           // Check if this is a direct search (FIND_BY_TITLE) or similarity search
           if (validatedResponse.intent === 'FIND_BY_TITLE') {
-            responseMsg = `Found ${session.allResults?.length || validatedResponse.results.length} audiobook(s) for "${validatedResponse.seed_book.title}":\n\n`;
+            // Update session with new results FIRST, before using them
+            this.storeSearchResults(message.author.id, result);
+            
+            // Get the updated session to access fresh allResults
+            const updatedSession = this.getSession(message.author.id);
+            const totalResults = updatedSession.allResults?.length || validatedResponse.results.length;
+            
+            responseMsg = `Found ${totalResults} audiobook(s) for "${validatedResponse.seed_book.title}":\n\n`;
             
             // Use pagination-aware formatting
-            if (session.allResults && session.allResults.length > 5) {
-              const totalPages = Math.ceil(session.allResults.length / 5);
-              const hasNextPage = session.allResults.length > 5;
-              responseMsg = this.formatPaginatedResults(validatedResponse.results, 1, totalPages, session.allResults.length, hasNextPage, 0);
+            if (totalResults > 5) {
+              const totalPages = Math.ceil(totalResults / 5);
+              const hasNextPage = totalResults > 5;
+              responseMsg = this.formatPaginatedResults(validatedResponse.results, 1, totalPages, totalResults, hasNextPage, 0);
             } else {
               // List search results with download info
               responseMsg += validatedResponse.results

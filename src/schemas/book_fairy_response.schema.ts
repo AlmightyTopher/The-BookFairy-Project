@@ -40,7 +40,8 @@ export const BookFairyResponse = z.object({
     audience: z.string().optional(),
     format: z.string().optional(),
     why_similar: z.string(),
-    similarity_axes: z.array(z.string())
+    similarity_axes: z.array(z.string()),
+    downloadUrl: z.string().optional()  // Add downloadUrl for direct downloads
   })),
   post_prompt: z.string()
 });

@@ -1,0 +1,16 @@
+{
+  "polite_nudge": "Mind tapping a button below? 👇",
+  "ask_author": "Who's the author you're looking for?",
+  "ask_title": "What's the title?",
+  "ask_genre": "Pick a genre that interests you.",
+  "confirm": "Found a match! Want me to queue it for download?",
+  "welcome": "✨ Welcome! I'm your magical book finder. What can I help you discover today?",
+  "searching": "🔍 Searching for magical books...",
+  "found_results": "📚 I found some enchanting options!",
+  "no_results": "😔 No magical books found with those criteria. Try something different?",
+  "download_started": "📥 Download spell cast! Your book is on its way.",
+  "error_generic": "🪄 Something went wrong with my magic. Try again?",
+  "rate_limited": "⏰ Whoa! Even magic has limits. Give me a moment to recharge.",
+  "help": "I can help you find and download audiobooks! Use the buttons or just tell me what you're looking for.",
+  "goodbye": "Happy reading! ✨📖"
+}

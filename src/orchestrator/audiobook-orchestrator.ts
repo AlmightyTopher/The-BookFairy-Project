@@ -414,7 +414,8 @@ export class AudiobookOrchestrator {
         audience: 'adult',
         format: 'audiobook',
         why_similar: `${result.seeders} seeders, ${(result.size / (1024*1024*1024)).toFixed(1)}GB`,
-        similarity_axes: ['format', 'availability']
+        similarity_axes: ['format', 'availability'],
+        downloadUrl: result.downloadUrl  // Preserve the download URL for direct downloads
       };
     });
 
@@ -616,14 +617,19 @@ export class AudiobookOrchestrator {
     } as HealthStatus;
   }
 
-  // Method to download a specific book by title
-  async downloadBook(bookTitle: string): Promise<{ success: boolean; error?: string }> {
+  // Method to download a specific book by title or download URL
+  async downloadBook(bookTitle: string, downloadUrl?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // Find the book in the last search results (stored in memory)
-      // For a production app, you'd want to store this more persistently
-      logger.info({ bookTitle }, 'Attempting to download specific book');
+      logger.info({ bookTitle, hasDownloadUrl: !!downloadUrl }, 'Attempting to download specific book');
       
-      // For now, let's do a quick search to find the exact torrent
+      // If we have a direct download URL, use it
+      if (downloadUrl) {
+        await addTorrent(downloadUrl);
+        logger.info({ torrent: { title: bookTitle, url: downloadUrl } }, 'Added torrent to qBittorrent successfully using direct URL');
+        return { success: true };
+      }
+      
+      // Fallback: search for the book if no download URL provided
       const searchResult = await searchProwlarr(bookTitle, {
         preferredFormat: 'M4B',
         fallbackToMP3: true,

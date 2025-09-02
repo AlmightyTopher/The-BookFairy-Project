@@ -4,6 +4,9 @@ import { installQuickActions, handleQuickActionMessage } from './quick-actions';
 import { setDiscordClient, setMessageHandler } from './bridge/dispatch';
 import { config } from './config/config';
 import { logger } from './utils/logger';
+import { startMetrics, requests } from './metrics/server';
+import { withReqId } from './lib/logger';
+import { randomUUID } from 'crypto';
 
 const client = new Client({
   intents: [
@@ -25,6 +28,9 @@ client.once('clientReady', () => {
   // Set the Discord client and message handler in the dispatch bridge
   setDiscordClient(client);
   setMessageHandler(messageHandler);
+  
+  // Start metrics server
+  startMetrics(parseInt(process.env.METRICS_PORT || '9090'));
 });
 
 // Install quick actions system
@@ -61,16 +67,26 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
   
+  const reqId = randomUUID();
+  const log = withReqId(reqId);
+  
   try {
+    log.info({ buttonId: interaction.customId, userId: interaction.user.id }, 'Button interaction received');
+    requests.inc({ type: 'button', command: interaction.customId, status: 'received' });
+    
     await messageHandler.handleButtonInteraction(interaction);
+    
+    requests.inc({ type: 'button', command: interaction.customId, status: 'success' });
   } catch (error) {
-    logger.error({ error }, 'Failed to handle button interaction');
+    log.error({ error }, 'Failed to handle button interaction');
+    requests.inc({ type: 'button', command: interaction.customId, status: 'error' });
+    
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: 'Sorry, something went wrong. Please try again.', flags: MessageFlags.Ephemeral });
       }
     } catch (replyError) {
-      logger.error({ replyError }, 'Failed to send error reply');
+      log.error({ replyError }, 'Failed to send error reply');
     }
   }
 });
