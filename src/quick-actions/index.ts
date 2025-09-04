@@ -19,6 +19,20 @@ import {
 import { logger } from '../utils/logger';
 import { dispatchUserQuery } from '../bridge/dispatch';
 import { listGenres, getTopByGenre, listTimeframes, Genre, MangoItem, Timeframe } from '../integrations/mango';
+import { formatBook } from '../utils/goodreads';
+import { createSearchResultButtons } from '../utils/discord-ui';
+import { addTorrent } from '../clients/qbittorrent-client';
+import { browserScraper } from '../integrations/mango/browser-scraper';
+import { 
+  mamFlowManager, 
+  CANONICAL_GENRES, 
+  CANONICAL_TIME_WINDOWS, 
+  CanonicalGenre, 
+  CanonicalTimeWindow,
+  MAMFlowResults,
+  MAMFlowItem
+} from '../integrations/mango/mam-flow';
+import { prowlarrRelay } from '../integrations/mango/prowlarr-relay';
 import { searchMamCandidates } from '../integrations/mam';
 
 interface Session {
@@ -36,6 +50,15 @@ interface Session {
     currentPage?: number;
     totalPages?: number;
   };
+  // MAM Flow state (new canonical flow)
+  mamFlow?: {
+    selectedGenre?: CanonicalGenre;
+    selectedTimeWindow?: CanonicalTimeWindow;
+    currentPage: number;
+    totalPages: number;
+    currentResults: MAMFlowItem[];
+    currentItem?: MAMFlowItem;
+  };
 }
 
 const sessions = new Map<string, Session>();
@@ -51,7 +74,7 @@ function getSessionKey(channelId: string | null, userId: string): string {
   return channelId ? `${channelId}:${userId}` : `dm:${userId}`;
 }
 
-function getSession(channelId: string | null, userId: string): Session {
+export function getSession(channelId: string | null, userId: string): Session {
   const key = getSessionKey(channelId, userId);
   if (!sessions.has(key)) {
     sessions.set(key, { nudges: 0 });
@@ -124,6 +147,15 @@ function createMainScreen(): { embeds: EmbedBuilder[], components: ActionRowBuil
         .setStyle(ButtonStyle.Secondary)
     );
 
+  const audiobooksRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_flow_audiobooks')
+        .setLabel('📚 Audiobooks')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('🎧')
+    );
+
   const moreRow = new ActionRowBuilder<ButtonBuilder>()
     .addComponents(
       new ButtonBuilder()
@@ -146,7 +178,7 @@ function createMainScreen(): { embeds: EmbedBuilder[], components: ActionRowBuil
 
   return {
     embeds: [embed],
-    components: [searchRow, moreRow, anchorRow]
+    components: [searchRow, audiobooksRow, moreRow, anchorRow]
   };
 }
 
@@ -360,7 +392,244 @@ function isCustomTextInput(content: string): boolean {
          content.length > 10; // Longer texts are likely custom searches
 }
 
-// Genre browsing UI components
+// MAM Flow UI Components
+function createAudiobooksGenreScreen(page: number = 0): { embeds: EmbedBuilder[], components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setTitle('📚 Browse by Genre')
+    .setDescription('Choose a genre to explore audiobooks from MyAnonaMouse.')
+    .setColor(0x00D4AA);
+
+  // Split genres into pages of 25 (Discord limit)
+  const genresPerPage = 25;
+  const totalPages = Math.ceil(CANONICAL_GENRES.length / genresPerPage);
+  const startIndex = page * genresPerPage;
+  const endIndex = Math.min(startIndex + genresPerPage, CANONICAL_GENRES.length);
+  const pageGenres = CANONICAL_GENRES.slice(startIndex, endIndex);
+
+  // Update embed to show current page
+  embed.setDescription(`Choose a genre to explore audiobooks from MyAnonaMouse.\nPage ${page + 1} of ${totalPages}`);
+
+  // Create select menu with genres for this page
+  const genreOptions = pageGenres.map(genre => 
+    new StringSelectMenuOptionBuilder()
+      .setLabel(genre)
+      .setValue(`mam_genre_${genre.toLowerCase().replace(/[\s\/]+/g, '_')}`)
+      .setDescription(`Browse ${genre} audiobooks`)
+  );
+
+  const genreSelectMenu = new StringSelectMenuBuilder()
+    .setCustomId('bf_audiobooks_genre_select')
+    .setPlaceholder(`Select a genre (${pageGenres[0]} - ${pageGenres[pageGenres.length - 1]})...`)
+    .addOptions(genreOptions);
+
+  const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>()
+    .addComponents(genreSelectMenu);
+
+  const components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [selectRow];
+
+  // Add pagination buttons if needed
+  if (totalPages > 1) {
+    const navButtons: ButtonBuilder[] = [];
+    
+    if (page > 0) {
+      navButtons.push(
+        new ButtonBuilder()
+          .setCustomId(`bf_genre_page_${page - 1}`)
+          .setLabel('← Previous')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    if (page < totalPages - 1) {
+      navButtons.push(
+        new ButtonBuilder()
+          .setCustomId(`bf_genre_page_${page + 1}`)
+          .setLabel('Next →')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+
+    if (navButtons.length > 0) {
+      const navRow = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(navButtons);
+      components.push(navRow);
+    }
+  }
+
+  // Back button
+  const backRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_flow_main')
+        .setLabel('← Back to Main')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  components.push(backRow);
+
+  return {
+    embeds: [embed],
+    components
+  };
+}
+
+function createAudiobooksTimeWindowScreen(selectedGenre: CanonicalGenre): { embeds: EmbedBuilder[], components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setTitle(`📚 ${selectedGenre} Audiobooks`)
+    .setDescription('Choose a time window to see the most popular titles.')
+    .setColor(0x00D4AA);
+
+  // Create select menu with canonical time windows
+  const timeOptions = CANONICAL_TIME_WINDOWS.map(timeWindow => 
+    new StringSelectMenuOptionBuilder()
+      .setLabel(timeWindow.charAt(0).toUpperCase() + timeWindow.slice(1))
+      .setValue(`mam_time_${timeWindow.replace(/\s+/g, '_')}`)
+      .setDescription(`Popular in the last ${timeWindow}`)
+  );
+
+  const timeSelectMenu = new StringSelectMenuBuilder()
+    .setCustomId('bf_audiobooks_time_select')
+    .setPlaceholder('Select time window...')
+    .addOptions(timeOptions);
+
+  const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>()
+    .addComponents(timeSelectMenu);
+
+  const backRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_flow_audiobooks')
+        .setLabel('← Back to Genres')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  return {
+    embeds: [embed],
+    components: [selectRow, backRow]
+  };
+}
+
+function createAudiobooksResultsScreen(
+  results: MAMFlowResults,
+  genre: CanonicalGenre,
+  timeWindow: CanonicalTimeWindow
+): { content: string, components: ActionRowBuilder<ButtonBuilder>[] } {
+  if (results.items.length === 0) {
+    return {
+      content: `Sorry, I couldn't find any ${genre} audiobooks for ${timeWindow}. Try a different genre or time period.`,
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents([
+          new ButtonBuilder()
+            .setCustomId('bf_audiobooks_change_genre')
+            .setLabel('Change Genre')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId('bf_audiobooks_change_time')
+            .setLabel('Change Time')
+            .setStyle(ButtonStyle.Secondary)
+        ])
+      ]
+    };
+  }
+
+  // Format exactly like title search using formatPaginatedResults pattern
+  const startIndex = (results.currentPage - 1) * results.items.length;
+  let content = `📚 **${genre} Audiobooks** (Popular ${timeWindow})\n`;
+  content += `Showing ${startIndex + 1}-${startIndex + results.items.length} of ${results.totalItems} results (Page ${results.currentPage}/${results.totalPages}):\n\n`;
+  
+  // Format items exactly like title search using formatBook
+  content += results.items
+    .map((item, index) => formatBook(item.title, item.author, startIndex + index + 1))
+    .join('\n');
+
+  const hasNextPage = results.currentPage < results.totalPages;
+  if (hasNextPage) {
+    content += `\n\nSay "next" to see more results, or pick a number to download!`;
+  } else {
+    content += `\n\nPick a number to download!`;
+  }
+
+  // Create buttons that look identical to title search but use genre-specific handlers
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+  
+  // Numbered download buttons [1][2][3][4][5] - same visual style as title search
+  const numberButtons: ButtonBuilder[] = [];
+  for (let i = 0; i < Math.min(results.items.length, 5); i++) {
+    const buttonNumber = startIndex + i + 1;
+    numberButtons.push(
+      new ButtonBuilder()
+        .setCustomId(`bf_audiobooks_select_${i}`)
+        .setLabel(`${buttonNumber}`)
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
+  
+  if (numberButtons.length > 0) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(numberButtons));
+  }
+  
+  // Navigation buttons row - same style as title search
+  const navButtons: ButtonBuilder[] = [];
+  
+  if (hasNextPage) {
+    navButtons.push(
+      new ButtonBuilder()
+        .setCustomId('bf_audiobooks_next')
+        .setLabel('Next')
+        .setStyle(ButtonStyle.Secondary)
+    );
+  }
+  
+  navButtons.push(
+    new ButtonBuilder()
+      .setCustomId('bf_genre_more_info')
+      .setLabel('📖 More Info')
+      .setStyle(ButtonStyle.Secondary)
+  );
+  
+  // Genre-specific navigation instead of "New Search"
+  navButtons.push(
+    new ButtonBuilder()
+      .setCustomId('bf_audiobooks_change_genre')
+      .setLabel('Change Genre')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  if (navButtons.length > 0) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
+  }
+
+  return {
+    content,
+    components
+  };
+}
+
+function createAudiobooksConfirmationScreen(item: MAMFlowItem): { embeds: EmbedBuilder[], components: ActionRowBuilder<ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setTitle('📚 Confirm Selection')
+    .setDescription(`**${item.title}**\nby ${item.author}`)
+    .setColor(0x00D4AA);
+
+  const buttonRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_audiobooks_send_to_prowlarr')
+        .setLabel('Send to Prowlarr')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('📥'),
+      new ButtonBuilder()
+        .setCustomId('bf_audiobooks_cancel')
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  return {
+    embeds: [embed],
+    components: [buttonRow]
+  };
+}
+
 async function createGenreSelectionScreen(): Promise<{ embeds: EmbedBuilder[], components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] }> {
   const embed = new EmbedBuilder()
     .setTitle('🎭 Browse by Genre')
@@ -368,9 +637,15 @@ async function createGenreSelectionScreen(): Promise<{ embeds: EmbedBuilder[], c
     .setColor(0x7C4DFF);
 
   try {
+    logger.info({}, 'Starting to fetch genres from Mango');
     const genres = await listGenres();
+    logger.info({ genreCount: genres.length, genres: genres.map(g => g.name) }, 'Fetched genres from Mango');
+    
+    // Check if we're using fallback genres (they'll have specific names)
+    const isFallback = genres.some(g => g.id === 'fiction' && g.name === 'Fiction');
     
     if (genres.length === 0) {
+      logger.warn({}, 'No genres returned from Mango');
       embed.setDescription('Sorry sugar, I couldn\'t fetch the genres right now. Please try again in a moment.');
       
       const backRow = new ActionRowBuilder<ButtonBuilder>()
@@ -382,6 +657,11 @@ async function createGenreSelectionScreen(): Promise<{ embeds: EmbedBuilder[], c
         );
       
       return { embeds: [embed], components: [backRow] };
+    }
+
+    // Update description if using fallback
+    if (isFallback) {
+      embed.setDescription('🔄 Main service temporarily unavailable - showing popular genres.\nFirst, pick a genre you\'d like to explore.');
     }
 
     // Create select menu with up to 25 genres (Discord limit)
@@ -637,7 +917,7 @@ function createGenreResultsScreen(
 async function handleSlashCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   try {
     if (interaction.commandName === 'genres') {
-      const screen = await createGenreSelectionScreen();
+      const screen = createAudiobooksGenreScreen(0);
       await interaction.reply({
         embeds: screen.embeds,
         components: screen.components,
@@ -653,6 +933,71 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction): Pro
     }
   } catch (error) {
     logger.error({ error }, 'Failed to handle slash command');
+  }
+}
+
+/**
+ * Handle audiobooks navigation (next/prev/refresh)
+ */
+async function handleAudiobooksNavigation(
+  interaction: ButtonInteraction,
+  user: any,
+  channelId: string | null,
+  action: 'next' | 'prev' | 'refresh'
+): Promise<void> {
+  const session = getSession(channelId, user.id);
+  
+  if (!session.mamFlow?.selectedGenre || !session.mamFlow?.selectedTimeWindow) {
+    await interaction.deferUpdate();
+    const screen = createAudiobooksGenreScreen(0);
+    await interaction.editReply({
+      embeds: screen.embeds,
+      components: screen.components
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  try {
+    let targetPage = session.mamFlow.currentPage;
+    
+    if (action === 'next') {
+      targetPage = Math.min(session.mamFlow.currentPage + 1, session.mamFlow.totalPages);
+    } else if (action === 'prev') {
+      targetPage = Math.max(session.mamFlow.currentPage - 1, 1);
+    } else {
+      targetPage = session.mamFlow.currentPage;
+    }
+
+    // Get fresh results for the target page
+    const results = await mamFlowManager.getMAMResults(
+      session.mamFlow.selectedGenre,
+      session.mamFlow.selectedTimeWindow,
+      targetPage,
+      interaction.guildId || 'dm',
+      user.id
+    );
+
+    // Update session state
+    session.mamFlow.currentPage = results.currentPage;
+    session.mamFlow.totalPages = results.totalPages;
+    session.mamFlow.currentResults = results.items;
+
+    // Show updated results
+    const screen = createAudiobooksResultsScreen(results, session.mamFlow.selectedGenre, session.mamFlow.selectedTimeWindow);
+    await interaction.editReply({
+      content: screen.content,
+      components: screen.components
+    });
+
+  } catch (error) {
+    logger.error({ error, action }, 'Failed to handle audiobooks navigation');
+    await interaction.editReply({
+      content: 'Sorry, something went wrong. Please try again.',
+      embeds: [],
+      components: []
+    });
   }
 }
 
@@ -842,18 +1187,41 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
         break;
       }
 
-      case 'bf_flow_browse_genres': {
+      case 'bf_flow_audiobooks': {
+        // Entry point for MAM flow
+        await interaction.deferUpdate();
+        
         try {
-          const screen = await createGenreSelectionScreen();
-          await interaction.update({
+          const screen = createAudiobooksGenreScreen(0); // Start at page 0
+          await interaction.editReply({
             embeds: screen.embeds,
             components: screen.components
           });
         } catch (error) {
-          logger.error({ error }, 'Failed to show genre selection');
-          await interaction.reply({ 
-            content: 'Sorry darlin\', something went wrong loading the genres. Please try again later.',
-            ephemeral: true 
+          logger.error({ error }, 'Failed to show audiobooks genre selection');
+          await interaction.editReply({
+            content: 'Sorry, something went wrong loading the audiobook genres. Please try again later.',
+            embeds: [],
+            components: []
+          });
+        }
+        break;
+      }
+
+      case 'bf_flow_browse_genres': {
+        // Use canonical MAM genres with pagination
+        await interaction.deferUpdate();
+        
+        try {
+          const screen = createAudiobooksGenreScreen(0); // Start at page 0
+          await interaction.editReply({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        } catch (error) {
+          logger.error({ error }, 'Failed to show MAM genre selection');
+          await interaction.editReply({
+            content: 'Sorry darlin\', something went wrong loading the genres. Please try again later.'
           });
         }
         break;
@@ -868,8 +1236,8 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
             components: screen.components
           });
         } else {
-          // Fallback to genre selection
-          const screen = await createGenreSelectionScreen();
+          // Fallback to audiobooks genre selection
+          const screen = createAudiobooksGenreScreen(0);
           await interaction.update({
             embeds: screen.embeds,
             components: screen.components
@@ -1126,69 +1494,60 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
 
       // Timeframe selection handlers
       default: {
-        // Handle timeframe selection buttons
+        // Handle timeframe selection buttons - redirect to new MAM flow
         if (customId.startsWith('bf_timeframe_')) {
-          const timeframe = customId.replace('bf_timeframe_', '') as Timeframe;
-          const session = getSession(channelId, user.id);
+          await interaction.update({
+            content: '🔄 Redirecting to the new audiobooks interface...'
+          });
           
-          if (!session.genreBrowsing?.selectedGenre) {
-            await interaction.reply({ 
-              content: 'Sorry, something went wrong. Please start over.',
-              ephemeral: true 
+          setTimeout(async () => {
+            const screen = createAudiobooksGenreScreen(0);
+            await interaction.editReply({
+              content: null,
+              embeds: screen.embeds,
+              components: screen.components
             });
-            break;
-          }
+          }, 1000);
+          break;
+        }
+        
+        // Handle queue buttons - redirect to new MAM flow
+        if (customId.startsWith('bf_queue_')) {
+          await interaction.reply({
+            content: '🔄 Please use the new audiobooks interface! Click the "📚 Audiobooks" button to get started with the updated flow that sends items to Prowlarr.',
+            ephemeral: true
+          });
+          break;
+        }
+
+        // Handle genre page navigation
+        if (customId.startsWith('bf_genre_page_')) {
+          const page = parseInt(customId.replace('bf_genre_page_', ''));
+          await interaction.deferUpdate();
           
           try {
-            // Store timeframe selection
-            session.genreBrowsing.selectedTimeframe = timeframe;
-            session.genreBrowsing.currentPage = 0;
-            
-            // Show loading message
-            await interaction.update({
-              embeds: [new EmbedBuilder()
-                .setTitle('⏳ Loading Results...')
-                .setDescription('Hold on sugar, I\'m fetching those audiobooks for you...')
-                .setColor(0x7C4DFF)],
-              components: []
-            });
-            
-            // Fetch results
-            const results = await getTopByGenre(session.genreBrowsing.selectedGenre, timeframe, 25);
-            session.genreBrowsing.currentResults = results;
-            
-            // Show results
-            const screen = createGenreResultsScreen(results, session.genreBrowsing.selectedGenre, timeframe, 0);
+            const screen = createAudiobooksGenreScreen(page);
             await interaction.editReply({
               embeds: screen.embeds,
               components: screen.components
             });
-            
           } catch (error) {
-            logger.error({ error, genre: session.genreBrowsing.selectedGenre, timeframe }, 'Failed to fetch genre results');
+            logger.error({ error, page }, 'Failed to show genre page');
             await interaction.editReply({
-              embeds: [new EmbedBuilder()
-                .setTitle('❌ Oops!')
-                .setDescription('Sorry darlin\', I couldn\'t fetch those results right now. Please try again in a moment.')
-                .setColor(0xFF0000)],
-              components: [new ActionRowBuilder<ButtonBuilder>()
-                .addComponents(
-                  new ButtonBuilder()
-                    .setCustomId('bf_flow_browse_genres')
-                    .setLabel('Try Again')
-                    .setStyle(ButtonStyle.Primary)
-                )]
+              content: 'Sorry, something went wrong changing pages. Please try again.',
+              embeds: [],
+              components: []
             });
           }
           break;
         }
-        
-        // Handle queue buttons (matching Prowlarr/Goodreads download pattern)
-        if (customId.startsWith('bf_queue_')) {
-          const itemIndex = parseInt(customId.replace('bf_queue_', ''));
+
+        // MAM Flow Handlers
+        if (customId.startsWith('bf_audiobooks_select_')) {
+          const itemIndex = parseInt(customId.replace('bf_audiobooks_select_', ''));
           const session = getSession(channelId, user.id);
           
-          if (!session.genreBrowsing?.currentResults || !session.genreBrowsing.currentResults[itemIndex]) {
+          if (!session.mamFlow?.currentResults || !session.mamFlow.currentResults[itemIndex]) {
             await interaction.reply({ 
               content: 'Sorry, that item is no longer available.',
               ephemeral: true 
@@ -1196,52 +1555,183 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
             break;
           }
           
-          const item = session.genreBrowsing.currentResults[itemIndex];
+          const item = session.mamFlow.currentResults[itemIndex];
+          session.mamFlow.currentItem = item;
+          
+          await interaction.deferUpdate();
           
           try {
-            // Immediate feedback (like Prowlarr download buttons)
-            await interaction.reply({ 
-              content: `🔄 Starting download for "${item.title}" by ${item.author}...`,
-              ephemeral: true 
+            const screen = createAudiobooksConfirmationScreen(item);
+            await interaction.editReply({
+              embeds: screen.embeds,
+              components: screen.components
             });
-            
-            // Try to enrich with MAM candidates first
-            const mamCandidates = await searchMamCandidates(item);
-            
-            // Create a search query for the existing pipeline
-            const query = `find audiobook "${item.title}" by ${item.author}`;
-            
-            // Dispatch to existing BookFairy pipeline (same as Prowlarr flow)
-            await dispatchUserQuery({
-              userId: user.id,
-              username: user.username,
-              channelId: channelId || 'dm',
-              text: query,
-              source: 'genre_browser'
-            });
-            
-            // Success feedback
-            const successMessage = mamCandidates.length > 0 
-              ? `✅ Queued "${item.title}" with ${mamCandidates.length} MAM candidates found!`
-              : `✅ Queued "${item.title}" for download!`;
-              
-            await interaction.editReply({ 
-              content: successMessage 
-            });
-            
-            logger.info({ 
-              title: item.title, 
-              author: item.author, 
-              mamCandidates: mamCandidates.length,
-              userId: user.id 
-            }, 'Queued item from genre browser');
-            
           } catch (error) {
-            logger.error({ error, item: item.title }, 'Failed to queue item from genre browser');
-            await interaction.editReply({ 
-              content: `❌ Failed to queue "${item.title}". Please try searching for it manually.`
+            logger.error({ error }, 'Failed to show audiobooks confirmation');
+            await interaction.editReply({
+              content: 'Sorry, something went wrong. Please try again.',
+              embeds: [],
+              components: []
             });
           }
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_next') {
+          await handleAudiobooksNavigation(interaction, user, channelId, 'next');
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_prev') {
+          await handleAudiobooksNavigation(interaction, user, channelId, 'prev');
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_change_genre') {
+          await interaction.deferUpdate();
+          const screen = createAudiobooksGenreScreen(0);
+          await interaction.editReply({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+          // Clear MAM flow state
+          const session = getSession(channelId, user.id);
+          session.mamFlow = undefined;
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_change_time') {
+          const session = getSession(channelId, user.id);
+          if (!session.mamFlow?.selectedGenre) {
+            await interaction.deferUpdate();
+            const screen = createAudiobooksGenreScreen(0);
+            await interaction.editReply({
+              embeds: screen.embeds,
+              components: screen.components
+            });
+            break;
+          }
+          
+          await interaction.deferUpdate();
+          const screen = createAudiobooksTimeWindowScreen(session.mamFlow.selectedGenre);
+          await interaction.editReply({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_send_to_prowlarr') {
+          const session = getSession(channelId, user.id);
+          if (!session.mamFlow?.currentItem) {
+            await interaction.reply({ 
+              content: 'No item selected.',
+              ephemeral: true 
+            });
+            break;
+          }
+
+          await interaction.deferUpdate();
+          
+          try {
+            await interaction.editReply({
+              content: '🔄 Getting download metadata and sending to Prowlarr...',
+              embeds: [],
+              components: []
+            });
+
+            // Get download metadata
+            const itemWithMetadata = await mamFlowManager.getDownloadMetadata(session.mamFlow.currentItem);
+            
+            // Send to Prowlarr
+            const result = await prowlarrRelay.relayToDownload(itemWithMetadata);
+            
+            if (result.success) {
+              const successRow = new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('bf_audiobooks_pick_another')
+                    .setLabel('Pick Another')
+                    .setStyle(ButtonStyle.Primary),
+                  new ButtonBuilder()
+                    .setCustomId('bf_audiobooks_change_genre')
+                    .setLabel('Change Genre')
+                    .setStyle(ButtonStyle.Secondary),
+                  new ButtonBuilder()
+                    .setCustomId('bf_audiobooks_change_time')
+                    .setLabel('Change Time')
+                    .setStyle(ButtonStyle.Secondary),
+                  new ButtonBuilder()
+                    .setCustomId('bf_flow_main')
+                    .setLabel('Done')
+                    .setStyle(ButtonStyle.Success)
+                );
+
+              await interaction.editReply({
+                content: `✅ Successfully sent "${result.title}" by ${result.author} to Prowlarr!`,
+                components: [successRow]
+              });
+            } else {
+              const errorRow = new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('bf_audiobooks_pick_another')
+                    .setLabel('Pick Another')
+                    .setStyle(ButtonStyle.Primary),
+                  new ButtonBuilder()
+                    .setCustomId('bf_audiobooks_change_genre')
+                    .setLabel('Change Genre')
+                    .setStyle(ButtonStyle.Secondary),
+                  new ButtonBuilder()
+                    .setCustomId('bf_flow_main')
+                    .setLabel('Done')
+                    .setStyle(ButtonStyle.Success)
+                );
+
+              await interaction.editReply({
+                content: `❌ ${result.message}`,
+                components: [errorRow]
+              });
+            }
+          } catch (error) {
+            logger.error({ error }, 'Failed to send audiobook to Prowlarr');
+            await interaction.editReply({
+              content: `❌ Failed to send to Prowlarr: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              components: []
+            });
+          }
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_pick_another') {
+          const session = getSession(channelId, user.id);
+          if (!session.mamFlow?.selectedGenre || !session.mamFlow?.selectedTimeWindow) {
+            await interaction.deferUpdate();
+            const screen = createAudiobooksGenreScreen(0);
+            await interaction.editReply({
+              embeds: screen.embeds,
+              components: screen.components
+            });
+            break;
+          }
+
+          await handleAudiobooksNavigation(interaction, user, channelId, 'refresh');
+          break;
+        }
+
+        if (customId === 'bf_audiobooks_cancel') {
+          const session = getSession(channelId, user.id);
+          if (!session.mamFlow?.selectedGenre || !session.mamFlow?.selectedTimeWindow) {
+            await interaction.deferUpdate();
+            const screen = createAudiobooksGenreScreen(0);
+            await interaction.editReply({
+              embeds: screen.embeds,
+              components: screen.components
+            });
+            break;
+          }
+
+          await handleAudiobooksNavigation(interaction, user, channelId, 'refresh');
           break;
         }
         
@@ -1386,33 +1876,122 @@ async function handleSelectMenuInteraction(interaction: StringSelectMenuInteract
 
     switch (customId) {
       case 'bf_genre_select': {
-        const selectedGenreId = values[0];
+        // Redirect to new MAM flow
+        await interaction.update({
+          content: '🔄 Redirecting to the new audiobooks interface...'
+        });
         
-        try {
-          // Get genre name for display
-          const genres = await listGenres();
-          const selectedGenre = genres.find(g => g.id === selectedGenreId);
-          const genreName = selectedGenre?.name || selectedGenreId;
-          
-          // Store genre selection in session
-          if (!session.genreBrowsing) {
-            session.genreBrowsing = {};
-          }
-          session.genreBrowsing.selectedGenre = genreName;
-          
-          // Show timeframe selection
-          const screen = createTimeframeSelectionScreen(genreName);
-          await interaction.update({
+        setTimeout(async () => {
+          const screen = createAudiobooksGenreScreen(0);
+          await interaction.editReply({
+            content: null,
             embeds: screen.embeds,
             components: screen.components
           });
-          
-        } catch (error) {
-          logger.error({ error }, 'Failed to handle genre selection');
-          await interaction.reply({ 
-            content: 'Sorry darlin\', something went wrong. Please try again.',
-            ephemeral: true 
+        }, 1000);
+        break;
+      }
+
+      case 'bf_audiobooks_genre_select': {
+        const selectedGenreValue = values[0];
+        
+        // Extract the genre name from the value
+        if (!selectedGenreValue.startsWith('mam_genre_')) {
+          await interaction.reply({
+            content: 'Sorry, invalid genre selection.',
+            ephemeral: true
           });
+          break;
+        }
+        
+        const genreName = selectedGenreValue.replace('mam_genre_', '').replace(/_/g, ' ');
+        
+        // Find the canonical genre that matches (case-insensitive, handle special chars)
+        const canonicalGenre = CANONICAL_GENRES.find(g => 
+          g.toLowerCase().replace(/[\s\/]+/g, '_') === selectedGenreValue.replace('mam_genre_', '')
+        ) as CanonicalGenre;
+
+        if (!canonicalGenre) {
+          await interaction.reply({
+            content: `Sorry, invalid genre selection: "${genreName}". Please try again.`,
+            ephemeral: true
+          });
+          break;
+        }
+
+        // Initialize MAM flow state
+        if (!session.mamFlow) {
+          session.mamFlow = {
+            currentPage: 1,
+            totalPages: 1,
+            currentResults: []
+          };
+        }
+        session.mamFlow.selectedGenre = canonicalGenre;
+
+        // Show time window selection
+        const screen = createAudiobooksTimeWindowScreen(canonicalGenre);
+        await interaction.update({
+          embeds: screen.embeds,
+          components: screen.components
+        });
+        break;
+      }
+
+      case 'bf_audiobooks_time_select': {
+        const selectedTimeValue = values[0];
+        const timeWindow = selectedTimeValue.replace('mam_time_', '').replace(/_/g, ' ') as CanonicalTimeWindow;
+
+        if (!session.mamFlow?.selectedGenre) {
+          await interaction.reply({
+            content: 'Please select a genre first.',
+            ephemeral: true
+          });
+          break;
+        }
+
+        session.mamFlow.selectedTimeWindow = timeWindow;
+
+        await interaction.deferUpdate();
+
+        try {
+          // Get MAM results
+          const results = await mamFlowManager.getMAMResults(
+            session.mamFlow.selectedGenre,
+            timeWindow,
+            1, // Start with page 1
+            interaction.guildId || 'dm',
+            user.id
+          );
+
+          // Update session state
+          session.mamFlow.currentPage = results.currentPage;
+          session.mamFlow.totalPages = results.totalPages;
+          session.mamFlow.currentResults = results.items;
+
+          // Show results
+          const screen = createAudiobooksResultsScreen(results, session.mamFlow.selectedGenre, timeWindow);
+          await interaction.editReply({
+            content: screen.content,
+            components: screen.components
+          });
+
+        } catch (error) {
+          logger.error({ error }, 'Failed to get MAM results');
+          
+          if (error instanceof Error && error.message.includes('Rate limit')) {
+            await interaction.editReply({
+              content: '⏱️ Rate limit exceeded. Please wait a moment before trying again.',
+              embeds: [],
+              components: []
+            });
+          } else {
+            await interaction.editReply({
+              content: 'Sorry, something went wrong getting the audiobooks. Please try again later.',
+              embeds: [],
+              components: []
+            });
+          }
         }
         break;
       }
@@ -1464,6 +2043,46 @@ export function installQuickActions(client: Client): void {
   });
 
   logger.info('Quick actions system installed');
+}
+
+/**
+ * Fallback to the existing search pipeline when direct MAM download fails
+ */
+async function fallbackToSearchPipeline(
+  item: MangoItem, 
+  user: any, 
+  channelId: string, 
+  interaction: ButtonInteraction
+): Promise<void> {
+  try {
+    // Create a search query for the existing pipeline
+    const query = `find audiobook "${item.title}" by ${item.author}`;
+    
+    // Dispatch to existing BookFairy pipeline (same as Prowlarr flow)
+    await dispatchUserQuery({
+      userId: user.id,
+      username: user.username,
+      channelId: channelId || 'dm',
+      text: query,
+      source: 'genre_browser'
+    });
+    
+    // Success feedback
+    await interaction.editReply({ 
+      content: `✅ Queued "${item.title}" for search through Prowlarr!\n` +
+              `🔍 The bot will search for it and download if found.`
+    });
+    
+    logger.info({ 
+      title: item.title, 
+      author: item.author, 
+      userId: user.id 
+    }, 'Queued item from genre browser via search pipeline');
+    
+  } catch (error) {
+    logger.error({ error, item: item.title }, 'Failed to queue item via search pipeline');
+    throw error; // Re-throw to be handled by the caller
+  }
 }
 
 // Export functions for use by message handler
