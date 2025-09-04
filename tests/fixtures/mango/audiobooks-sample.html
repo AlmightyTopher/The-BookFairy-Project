@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mango Mushrooms - Audiobooks</title>
+</head>
+<body>
+    <div class="genre-list">
+        <a href="/audiobooks?genre=fiction" data-genre="fiction">Fiction</a>
+        <a href="/audiobooks?genre=non-fiction" data-genre="non-fiction">Non-Fiction</a>
+        <a href="/audiobooks?genre=mystery" data-genre="mystery">Mystery</a>
+        <a href="/audiobooks?genre=sci-fi" data-genre="sci-fi">Science Fiction</a>
+        <a href="/audiobooks?genre=fantasy" data-genre="fantasy">Fantasy</a>
+    </div>
+    
+    <div class="book-list">
+        <div class="book-item">
+            <h3 class="title">The Great Gatsby</h3>
+            <div class="author">F. Scott Fitzgerald</div>
+            <a href="/book/great-gatsby">View Details</a>
+        </div>
+        <div class="book-item">
+            <h3 class="title">Dune</h3>
+            <div class="author">Frank Herbert</div>
+            <a href="/book/dune">View Details</a>
+        </div>
+        <div class="book-item">
+            <h3 class="title">The Hobbit</h3>
+            <div class="author">J.R.R. Tolkien</div>
+            <a href="/book/hobbit">View Details</a>
+        </div>
+    </div>
+    
+    <script>
+        // Sample API endpoints that might be detected
+        fetch('/api/genres').then(r => r.json());
+        fetch('/api/books/top?genre=fiction&time=1m').then(r => r.json());
+    </script>
+</body>
+</html>

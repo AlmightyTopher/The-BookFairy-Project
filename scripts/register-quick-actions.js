@@ -21,6 +21,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('menu')
     .setDescription('Open the Book Fairy quick actions menu')
+    .setDMPermission(true),
+  new SlashCommandBuilder()
+    .setName('genres')
+    .setDescription('Browse audiobooks by genre and timeframe')
     .setDMPermission(true)
 ];
 

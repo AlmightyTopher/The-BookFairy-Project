@@ -25,6 +25,31 @@ export const downloadAttempts = new Counter({
   labelNames: ['status', 'provider']
 });
 
+// Mango integration metrics
+export const mangoRequests = new Counter({
+  name: "bookfairy_mango_requests_total",
+  help: "Total requests to Mango service",
+  labelNames: ['endpoint', 'status']
+});
+
+export const mangoItemsReturned = new Counter({
+  name: "bookfairy_mango_items_returned_total", 
+  help: "Total items returned from Mango",
+  labelNames: ['genre', 'timeframe']
+});
+
+export const mamEnrichmentAttempts = new Counter({
+  name: "bookfairy_mam_enrichment_attempts_total",
+  help: "Total MAM enrichment attempts",
+  labelNames: ['source']
+});
+
+export const mamEnrichmentHits = new Counter({
+  name: "bookfairy_mam_enrichment_hits_total",
+  help: "Successful MAM enrichment results",
+  labelNames: ['source', 'candidate_count']
+});
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === "/healthz") { 

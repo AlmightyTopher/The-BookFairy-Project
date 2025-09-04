@@ -8,6 +8,7 @@ import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goo
 import { downloadMonitor } from '../services/download-monitor';
 import { SouthernBellePersonality_Test } from '../personality/southern-belle-test';
 import { createSearchResultButtons } from '../utils/discord-ui';
+import { createGenreSelectionScreen } from '../quick-actions';
 
 /**
  * Tracks user conversation state and interaction history
@@ -407,6 +408,11 @@ export class MessageHandler {
 • Type a number to download a book from search results
 • Use the buttons - I'm much better with those, sugar! 
 
+**Genre Browsing:**
+• Type \`genres\` or \`!genres\` - Browse books by genre and timeframe
+• Use \`/genres\` slash command for quick access
+• All genre options are also available through my button menus!
+
 **Admin Commands:**
 • \`!fairy help\` - Show this help menu (what you're seein' now)
 • \`!fairy cancel <id>\` - Cancel a download job *(coming real soon, darlin')*
@@ -602,12 +608,20 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
         });
         
       } else if (interaction.customId === 'browse_genres') {
-        const genreButtons = this.createGenreButtons();
-        await interaction.reply({ 
-          content: "🎭 **Browse by Genre**\nChoose a genre you're interested in:", 
-          components: genreButtons,
-          flags: MessageFlags.Ephemeral 
-        });
+        try {
+          const screen = await createGenreSelectionScreen();
+          await interaction.reply({ 
+            embeds: screen.embeds,
+            components: screen.components,
+            flags: MessageFlags.Ephemeral 
+          });
+        } catch (error) {
+          logger.error({ error }, 'Failed to show genre selection screen');
+          await interaction.reply({ 
+            content: "Sorry darlin', I'm having trouble loading the genre browser right now. Please try again in a moment.", 
+            flags: MessageFlags.Ephemeral 
+          });
+        }
         
       } else if (interaction.customId.startsWith('genre_')) {
         const genre = interaction.customId.replace('genre_', '');
@@ -919,6 +933,31 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
       if (query.startsWith('!fairy ')) {
         await this.handleAdminCommand(message, query);
         return;
+      }
+
+      // Handle genre browsing commands
+      if (query.toLowerCase().match(/^(!?genres?|!?browse\s*genres?)$/)) {
+        try {
+          const screen = await createGenreSelectionScreen();
+          const personalityMessage = this.personality.transformMessage_test(
+            "Well honey, let's find you some books by genre! Pick what tickles your fancy:",
+            'presenting'
+          );
+          await message.reply({
+            content: personalityMessage,
+            components: screen.components
+          });
+          this.markButtonsShown(message.author.id);
+          return;
+        } catch (error) {
+          logger.error({ error }, 'Error creating genre selection screen');
+          const errorMessage = this.personality.transformMessage_test(
+            "Oh mercy, somethin' went wrong with the genre browser. Try again, sugar!",
+            'error'
+          );
+          await message.reply(errorMessage);
+          return;
+        }
       }
 
       // NEW: Check if user should be redirected to buttons

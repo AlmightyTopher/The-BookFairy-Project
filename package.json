@@ -16,9 +16,11 @@
     "register:qa": "node scripts/register-quick-actions.js"
   },
   "dependencies": {
+    "@types/cheerio": "^0.22.35",
     "@types/natural": "^5.1.5",
     "axios": "^1.11.0",
     "bottleneck": "^2.19.5",
+    "cheerio": "^1.1.2",
     "discord.js": "^14.22.1",
     "dotenv": "^16.3.1",
     "fastify": "^4.24.3",

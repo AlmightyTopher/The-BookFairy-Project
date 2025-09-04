@@ -11,10 +11,15 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  InteractionType
+  InteractionType,
+  StringSelectMenuBuilder,
+  StringSelectMenuInteraction,
+  StringSelectMenuOptionBuilder
 } from 'discord.js';
 import { logger } from '../utils/logger';
 import { dispatchUserQuery } from '../bridge/dispatch';
+import { listGenres, getTopByGenre, listTimeframes, Genre, MangoItem, Timeframe } from '../integrations/mango';
+import { searchMamCandidates } from '../integrations/mam';
 
 interface Session {
   expecting?: 'title' | 'author' | 'description' | 'series' | 'narrator' | 'genre' | 'language' | 'length' | 'request_id';
@@ -23,6 +28,14 @@ interface Session {
   currentFlow?: 'awaiting_input' | 'processing' | 'showing_results' | 'completed';
   lastSearchResults?: any;
   lastQuery?: string;
+  // Genre browsing state
+  genreBrowsing?: {
+    selectedGenre?: string;
+    selectedTimeframe?: Timeframe;
+    currentResults?: MangoItem[];
+    currentPage?: number;
+    totalPages?: number;
+  };
 }
 
 const sessions = new Map<string, Session>();
@@ -106,6 +119,14 @@ function createMainScreen(): { embeds: EmbedBuilder[], components: ActionRowBuil
         .setLabel('Describe the Book')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
+        .setCustomId('bf_flow_browse_genres')
+        .setLabel('🎭 Browse Genres')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  const moreRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
         .setCustomId('bf_flow_more')
         .setLabel('More Options')
         .setStyle(ButtonStyle.Secondary)
@@ -125,7 +146,7 @@ function createMainScreen(): { embeds: EmbedBuilder[], components: ActionRowBuil
 
   return {
     embeds: [embed],
-    components: [searchRow, anchorRow]
+    components: [searchRow, moreRow, anchorRow]
   };
 }
 
@@ -185,6 +206,10 @@ function createMoreOptionsScreen(): { embeds: EmbedBuilder[], components: Action
         .setCustomId('bf_flow_surprise')
         .setLabel('Surprise Me')
         .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('bf_flow_browse_genres')
+        .setLabel('Browse Genres')
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId('bf_flow_more_back')
         .setLabel('Back')
@@ -335,14 +360,297 @@ function isCustomTextInput(content: string): boolean {
          content.length > 10; // Longer texts are likely custom searches
 }
 
+// Genre browsing UI components
+async function createGenreSelectionScreen(): Promise<{ embeds: EmbedBuilder[], components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] }> {
+  const embed = new EmbedBuilder()
+    .setTitle('🎭 Browse by Genre')
+    .setDescription('First, pick a genre you\'d like to explore.')
+    .setColor(0x7C4DFF);
+
+  try {
+    const genres = await listGenres();
+    
+    if (genres.length === 0) {
+      embed.setDescription('Sorry sugar, I couldn\'t fetch the genres right now. Please try again in a moment.');
+      
+      const backRow = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('bf_flow_more')
+            .setLabel('Back')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      
+      return { embeds: [embed], components: [backRow] };
+    }
+
+    // Create select menu with up to 25 genres (Discord limit)
+    const genreOptions = genres.slice(0, 25).map(genre => 
+      new StringSelectMenuOptionBuilder()
+        .setLabel(genre.name)
+        .setValue(genre.id)
+        .setDescription(`Browse ${genre.name} audiobooks`)
+    );
+
+    const genreSelect = new ActionRowBuilder<StringSelectMenuBuilder>()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('bf_genre_select')
+          .setPlaceholder('Choose a genre...')
+          .addOptions(genreOptions)
+          .setMinValues(1)
+          .setMaxValues(1)
+      );
+
+    const backRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('bf_flow_more')
+          .setLabel('Back')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('bf_flow_main')
+          .setLabel('New Chat')
+          .setStyle(ButtonStyle.Success)
+      );
+
+    return {
+      embeds: [embed],
+      components: [genreSelect, backRow]
+    };
+  } catch (error) {
+    logger.error({ error }, 'Failed to create genre selection screen');
+    embed.setDescription('Sorry darlin\', something went wrong loading the genres. Please try again later.');
+    
+    const backRow = new ActionRowBuilder<ButtonBuilder>()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('bf_flow_more')
+          .setLabel('Back')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    
+    return { embeds: [embed], components: [backRow] };
+  }
+}
+
+function createTimeframeSelectionScreen(selectedGenre: string): { embeds: EmbedBuilder[], components: ActionRowBuilder<ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setTitle('📅 Select Time Period')
+    .setDescription(`Now pick a time window for **${selectedGenre}** audiobooks.`)
+    .setColor(0x7C4DFF);
+
+  const timeframes = listTimeframes();
+  const timeframeLabels: Record<Timeframe, string> = {
+    '1w': 'Past Week',
+    '1m': 'Past Month', 
+    '3m': 'Past 3 Months',
+    '6m': 'Past 6 Months',
+    '1y': 'Past Year',
+    'all': 'All Time'
+  };
+
+  const timeframeRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      ...timeframes.slice(0, 4).map(timeframe =>
+        new ButtonBuilder()
+          .setCustomId(`bf_timeframe_${timeframe}`)
+          .setLabel(timeframeLabels[timeframe])
+          .setStyle(ButtonStyle.Primary)
+      )
+    );
+
+  const timeframeRow2 = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      ...timeframes.slice(4).map(timeframe =>
+        new ButtonBuilder()
+          .setCustomId(`bf_timeframe_${timeframe}`)
+          .setLabel(timeframeLabels[timeframe])
+          .setStyle(ButtonStyle.Primary)
+      )
+    );
+
+  const backRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_flow_browse_genres')
+        .setLabel('Back to Genres')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('bf_flow_main')
+        .setLabel('New Chat')
+        .setStyle(ButtonStyle.Success)
+    );
+
+  return {
+    embeds: [embed],
+    components: [timeframeRow, timeframeRow2, backRow]
+  };
+}
+
+function createGenreResultsScreen(
+  results: MangoItem[], 
+  genre: string, 
+  timeframe: Timeframe, 
+  page: number = 0
+): { embeds: EmbedBuilder[], components: ActionRowBuilder<ButtonBuilder>[] } {
+  const itemsPerPage = 5;
+  const startIndex = page * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, results.length);
+  const pageItems = results.slice(startIndex, endIndex);
+  const totalPages = Math.ceil(results.length / itemsPerPage);
+
+  const timeframeLabels: Record<Timeframe, string> = {
+    '1w': 'Past Week',
+    '1m': 'Past Month', 
+    '3m': 'Past 3 Months',
+    '6m': 'Past 6 Months',
+    '1y': 'Past Year',
+    'all': 'All Time'
+  };
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📚 ${genre} • ${timeframeLabels[timeframe]}`)
+    .setColor(0x7C4DFF);
+
+  if (pageItems.length === 0) {
+    embed.setDescription('Sorry sugar, I couldn\'t find any audiobooks for that combination. Try a different timeframe or genre.');
+  } else {
+    const description = pageItems.map((item, index) => {
+      const itemNumber = startIndex + index + 1;
+      return `**${itemNumber}.** **${item.title}** — ${item.author} · [Open](${item.url}) · (${item.genre} · ${timeframeLabels[item.timeframe]})`;
+    }).join('\n\n');
+
+    embed.setDescription(description);
+    
+    if (totalPages > 1) {
+      embed.setFooter({ text: `Page ${page + 1} of ${totalPages} • ${results.length} total results` });
+    } else {
+      embed.setFooter({ text: `${results.length} results` });
+    }
+  }
+
+  // Navigation and action buttons
+  const components: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  // Pagination if needed (matching Prowlarr/Goodreads pattern)
+  if (totalPages > 1) {
+    const paginationRow = new ActionRowBuilder<ButtonBuilder>();
+    
+    if (page > 0) {
+      paginationRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId('bf_genre_prev')
+          .setLabel('⬅️ Previous')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+    
+    if (page < totalPages - 1) {
+      paginationRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId('bf_genre_next')
+          .setLabel('Next ➡️')
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+    
+    // Add page indicator button (disabled)
+    paginationRow.addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_genre_page_info')
+        .setLabel(`Page ${page + 1}/${totalPages}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true)
+    );
+    
+    if (paginationRow.components.length > 0) {
+      components.push(paginationRow);
+    }
+  }
+
+  // Queue buttons for individual items (matching Prowlarr/Goodreads pattern)
+  if (pageItems.length > 0) {
+    const queueRow = new ActionRowBuilder<ButtonBuilder>();
+    pageItems.forEach((_, index) => {
+      const itemNumber = startIndex + index + 1;
+      queueRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bf_queue_${itemNumber - 1}`) // 0-based index for the full results array
+          .setLabel(`${itemNumber}`) // Just the number, like Prowlarr/Goodreads
+          .setStyle(ButtonStyle.Primary) // Primary style like download buttons
+      );
+    });
+    components.push(queueRow);
+  }
+
+  // Action buttons row (matching Prowlarr/Goodreads pattern)
+  const actionRow = new ActionRowBuilder<ButtonBuilder>();
+  
+  // More info button
+  actionRow.addComponents(
+    new ButtonBuilder()
+      .setCustomId('bf_genre_more_info')
+      .setLabel('📖 More Info')
+      .setStyle(ButtonStyle.Secondary)
+  );
+  
+  // MAM enrichment button  
+  actionRow.addComponents(
+    new ButtonBuilder()
+      .setCustomId('bf_genre_enrich_mam')
+      .setLabel('🔍 MAM Info')
+      .setStyle(ButtonStyle.Secondary)
+  );
+  
+  components.push(actionRow);
+
+  // Navigation buttons (matching Prowlarr/Goodreads pattern)
+  const navRow = new ActionRowBuilder<ButtonBuilder>()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('bf_genre_timeframe_back')
+        .setLabel('⏮️ Change Timeframe')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('bf_flow_browse_genres')
+        .setLabel('🔄 Change Genre')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('bf_genre_share')
+        .setLabel('📤 Share to Channel')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('bf_flow_main')
+        .setLabel('🆕 New Search')
+        .setStyle(ButtonStyle.Success)
+    );
+
+  components.push(navRow);
+
+  return {
+    embeds: [embed],
+    components
+  };
+}
+
 async function handleSlashCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   try {
-    const screen = createMainScreen();
-    await interaction.reply({
-      embeds: screen.embeds,
-      components: screen.components,
-      ephemeral: !interaction.channel?.isDMBased()
-    });
+    if (interaction.commandName === 'genres') {
+      const screen = await createGenreSelectionScreen();
+      await interaction.reply({
+        embeds: screen.embeds,
+        components: screen.components,
+        ephemeral: !interaction.channel?.isDMBased()
+      });
+    } else {
+      const screen = createMainScreen();
+      await interaction.reply({
+        embeds: screen.embeds,
+        components: screen.components,
+        ephemeral: !interaction.channel?.isDMBased()
+      });
+    }
   } catch (error) {
     logger.error({ error }, 'Failed to handle slash command');
   }
@@ -534,6 +842,245 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
         break;
       }
 
+      case 'bf_flow_browse_genres': {
+        try {
+          const screen = await createGenreSelectionScreen();
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        } catch (error) {
+          logger.error({ error }, 'Failed to show genre selection');
+          await interaction.reply({ 
+            content: 'Sorry darlin\', something went wrong loading the genres. Please try again later.',
+            ephemeral: true 
+          });
+        }
+        break;
+      }
+
+      case 'bf_genre_timeframe_back': {
+        const session = getSession(channelId, user.id);
+        if (session.genreBrowsing?.selectedGenre) {
+          const screen = createTimeframeSelectionScreen(session.genreBrowsing.selectedGenre);
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        } else {
+          // Fallback to genre selection
+          const screen = await createGenreSelectionScreen();
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        }
+        break;
+      }
+
+      case 'bf_genre_page_info': {
+        // This button is disabled, but we need a handler for completeness
+        await interaction.reply({ 
+          content: 'This is just a page indicator.',
+          ephemeral: true 
+        });
+        break;
+      }
+
+      case 'bf_genre_prev': {
+        const session = getSession(channelId, user.id);
+        if (session.genreBrowsing?.currentResults && session.genreBrowsing.selectedGenre && session.genreBrowsing.selectedTimeframe) {
+          const currentPage = session.genreBrowsing.currentPage || 0;
+          const newPage = Math.max(0, currentPage - 1);
+          session.genreBrowsing.currentPage = newPage;
+          
+          const screen = createGenreResultsScreen(
+            session.genreBrowsing.currentResults,
+            session.genreBrowsing.selectedGenre,
+            session.genreBrowsing.selectedTimeframe,
+            newPage
+          );
+          
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        }
+        break;
+      }
+
+      case 'bf_genre_next': {
+        const session = getSession(channelId, user.id);
+        if (session.genreBrowsing?.currentResults && session.genreBrowsing.selectedGenre && session.genreBrowsing.selectedTimeframe) {
+          const currentPage = session.genreBrowsing.currentPage || 0;
+          const totalPages = Math.ceil(session.genreBrowsing.currentResults.length / 5);
+          const newPage = Math.min(totalPages - 1, currentPage + 1);
+          session.genreBrowsing.currentPage = newPage;
+          
+          const screen = createGenreResultsScreen(
+            session.genreBrowsing.currentResults,
+            session.genreBrowsing.selectedGenre,
+            session.genreBrowsing.selectedTimeframe,
+            newPage
+          );
+          
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+        }
+        break;
+      }
+
+      case 'bf_genre_more_info': {
+        const session = getSession(channelId, user.id);
+        if (!session.genreBrowsing?.currentResults) {
+          await interaction.reply({ 
+            content: 'No results available for more info.',
+            ephemeral: true 
+          });
+          break;
+        }
+
+        // Show detailed info about current results, similar to Goodreads pattern
+        const results = session.genreBrowsing.currentResults;
+        const currentPage = session.genreBrowsing.currentPage || 0;
+        const itemsPerPage = 5;
+        const startIndex = currentPage * itemsPerPage;
+        const endIndex = Math.min(startIndex + itemsPerPage, results.length);
+        const pageItems = results.slice(startIndex, endIndex);
+
+        const embed = new EmbedBuilder()
+          .setTitle('📖 Detailed Information')
+          .setDescription(`Showing details for ${session.genreBrowsing.selectedGenre} • ${session.genreBrowsing.selectedTimeframe}`)
+          .setColor(0x7C4DFF);
+
+        const detailedInfo = pageItems.map((item, index) => {
+          const itemNumber = startIndex + index + 1;
+          return `**${itemNumber}.** **${item.title}**\n` +
+                 `   **Author:** ${item.author}\n` +
+                 `   **Genre:** ${item.genre}\n` +
+                 `   **URL:** [Open on Mango](${item.url})\n` +
+                 `   **Period:** ${item.timeframe}`;
+        }).join('\n\n');
+
+        embed.setDescription(detailedInfo);
+
+        await interaction.reply({
+          embeds: [embed],
+          ephemeral: true
+        });
+        break;
+      }
+
+      case 'bf_genre_enrich_mam': {
+        const session = getSession(channelId, user.id);
+        if (!session.genreBrowsing?.currentResults) {
+          await interaction.reply({ 
+            content: 'No results available for MAM enrichment.',
+            ephemeral: true 
+          });
+          break;
+        }
+
+        try {
+          await interaction.reply({ 
+            content: '🔍 Enriching results with MAM data...', 
+            ephemeral: true 
+          });
+
+          const results = session.genreBrowsing.currentResults;
+          const currentPage = session.genreBrowsing.currentPage || 0;
+          const itemsPerPage = 5;
+          const startIndex = currentPage * itemsPerPage;
+          const endIndex = Math.min(startIndex + itemsPerPage, results.length);
+          const pageItems = results.slice(startIndex, endIndex);
+
+          const enrichedInfos = await Promise.all(
+            pageItems.map(async (item, index) => {
+              try {
+                const mamCandidates = await searchMamCandidates(item);
+                const itemNumber = startIndex + index + 1;
+                return {
+                  number: itemNumber,
+                  title: item.title,
+                  author: item.author,
+                  mamCount: mamCandidates.length,
+                  mamResults: mamCandidates.slice(0, 3) // Show top 3 MAM results
+                };
+              } catch (error) {
+                logger.error({ error, item: item.title }, 'Failed to enrich with MAM');
+                return {
+                  number: startIndex + index + 1,
+                  title: item.title,
+                  author: item.author,
+                  mamCount: 0,
+                  mamResults: []
+                };
+              }
+            })
+          );
+
+          const embed = new EmbedBuilder()
+            .setTitle('🔍 MAM Enrichment Results')
+            .setColor(0x7C4DFF);
+
+          const enrichedText = enrichedInfos.map(info => {
+            let result = `**${info.number}.** **${info.title}** by ${info.author}\n`;
+            if (info.mamCount > 0) {
+              result += `   **MAM Results:** ${info.mamCount} found\n`;
+              if (info.mamResults.length > 0) {
+                const topResult = info.mamResults[0];
+                result += `   **Top Match:** ${topResult.title} (${topResult.size || 'Unknown size'})`;
+              }
+            } else {
+              result += `   **MAM Results:** No matches found`;
+            }
+            return result;
+          }).join('\n\n');
+
+          embed.setDescription(enrichedText);
+
+          await interaction.editReply({
+            content: '',
+            embeds: [embed]
+          });
+
+        } catch (error) {
+          logger.error({ error }, 'Failed to enrich results with MAM');
+          await interaction.editReply({
+            content: 'Sorry, failed to enrich results with MAM data. Please try again later.'
+          });
+        }
+        break;
+      }
+
+      case 'bf_genre_share': {
+        const session = getSession(channelId, user.id);
+        if (session.genreBrowsing?.currentResults && session.genreBrowsing.selectedGenre && session.genreBrowsing.selectedTimeframe) {
+          const currentPage = session.genreBrowsing.currentPage || 0;
+          const screen = createGenreResultsScreen(
+            session.genreBrowsing.currentResults,
+            session.genreBrowsing.selectedGenre,
+            session.genreBrowsing.selectedTimeframe,
+            currentPage
+          );
+          
+          // Send as a public message
+          await interaction.reply({
+            embeds: screen.embeds,
+            components: screen.components,
+            ephemeral: false
+          });
+        } else {
+          await interaction.reply({
+            content: 'No results to share right now.',
+            ephemeral: true
+          });
+        }
+        break;
+      }
+
       case 'bf_flow_check_status': {
         setExpectation(channelId, user.id, 'request_id');
         
@@ -574,6 +1121,132 @@ async function handleButtonInteraction(interaction: ButtonInteraction): Promise<
           embeds: [helpEmbed, ...screen.embeds],
           components: screen.components
         });
+        break;
+      }
+
+      // Timeframe selection handlers
+      default: {
+        // Handle timeframe selection buttons
+        if (customId.startsWith('bf_timeframe_')) {
+          const timeframe = customId.replace('bf_timeframe_', '') as Timeframe;
+          const session = getSession(channelId, user.id);
+          
+          if (!session.genreBrowsing?.selectedGenre) {
+            await interaction.reply({ 
+              content: 'Sorry, something went wrong. Please start over.',
+              ephemeral: true 
+            });
+            break;
+          }
+          
+          try {
+            // Store timeframe selection
+            session.genreBrowsing.selectedTimeframe = timeframe;
+            session.genreBrowsing.currentPage = 0;
+            
+            // Show loading message
+            await interaction.update({
+              embeds: [new EmbedBuilder()
+                .setTitle('⏳ Loading Results...')
+                .setDescription('Hold on sugar, I\'m fetching those audiobooks for you...')
+                .setColor(0x7C4DFF)],
+              components: []
+            });
+            
+            // Fetch results
+            const results = await getTopByGenre(session.genreBrowsing.selectedGenre, timeframe, 25);
+            session.genreBrowsing.currentResults = results;
+            
+            // Show results
+            const screen = createGenreResultsScreen(results, session.genreBrowsing.selectedGenre, timeframe, 0);
+            await interaction.editReply({
+              embeds: screen.embeds,
+              components: screen.components
+            });
+            
+          } catch (error) {
+            logger.error({ error, genre: session.genreBrowsing.selectedGenre, timeframe }, 'Failed to fetch genre results');
+            await interaction.editReply({
+              embeds: [new EmbedBuilder()
+                .setTitle('❌ Oops!')
+                .setDescription('Sorry darlin\', I couldn\'t fetch those results right now. Please try again in a moment.')
+                .setColor(0xFF0000)],
+              components: [new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('bf_flow_browse_genres')
+                    .setLabel('Try Again')
+                    .setStyle(ButtonStyle.Primary)
+                )]
+            });
+          }
+          break;
+        }
+        
+        // Handle queue buttons (matching Prowlarr/Goodreads download pattern)
+        if (customId.startsWith('bf_queue_')) {
+          const itemIndex = parseInt(customId.replace('bf_queue_', ''));
+          const session = getSession(channelId, user.id);
+          
+          if (!session.genreBrowsing?.currentResults || !session.genreBrowsing.currentResults[itemIndex]) {
+            await interaction.reply({ 
+              content: 'Sorry, that item is no longer available.',
+              ephemeral: true 
+            });
+            break;
+          }
+          
+          const item = session.genreBrowsing.currentResults[itemIndex];
+          
+          try {
+            // Immediate feedback (like Prowlarr download buttons)
+            await interaction.reply({ 
+              content: `🔄 Starting download for "${item.title}" by ${item.author}...`,
+              ephemeral: true 
+            });
+            
+            // Try to enrich with MAM candidates first
+            const mamCandidates = await searchMamCandidates(item);
+            
+            // Create a search query for the existing pipeline
+            const query = `find audiobook "${item.title}" by ${item.author}`;
+            
+            // Dispatch to existing BookFairy pipeline (same as Prowlarr flow)
+            await dispatchUserQuery({
+              userId: user.id,
+              username: user.username,
+              channelId: channelId || 'dm',
+              text: query,
+              source: 'genre_browser'
+            });
+            
+            // Success feedback
+            const successMessage = mamCandidates.length > 0 
+              ? `✅ Queued "${item.title}" with ${mamCandidates.length} MAM candidates found!`
+              : `✅ Queued "${item.title}" for download!`;
+              
+            await interaction.editReply({ 
+              content: successMessage 
+            });
+            
+            logger.info({ 
+              title: item.title, 
+              author: item.author, 
+              mamCandidates: mamCandidates.length,
+              userId: user.id 
+            }, 'Queued item from genre browser');
+            
+          } catch (error) {
+            logger.error({ error, item: item.title }, 'Failed to queue item from genre browser');
+            await interaction.editReply({ 
+              content: `❌ Failed to queue "${item.title}". Please try searching for it manually.`
+            });
+          }
+          break;
+        }
+        
+        // Unknown button
+        logger.warn({ customId }, 'Unknown button interaction');
         break;
       }
     }
@@ -702,6 +1375,62 @@ async function handleMessage(message: Message, client: Client): Promise<boolean>
   return true; // Handled by quick actions
 }
 
+async function handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+  try {
+    const { customId, user, channel, values } = interaction;
+    const channelId = channel?.id || null;
+    const session = getSession(channelId, user.id);
+
+    // Reset nudges on any interaction
+    session.nudges = 0;
+
+    switch (customId) {
+      case 'bf_genre_select': {
+        const selectedGenreId = values[0];
+        
+        try {
+          // Get genre name for display
+          const genres = await listGenres();
+          const selectedGenre = genres.find(g => g.id === selectedGenreId);
+          const genreName = selectedGenre?.name || selectedGenreId;
+          
+          // Store genre selection in session
+          if (!session.genreBrowsing) {
+            session.genreBrowsing = {};
+          }
+          session.genreBrowsing.selectedGenre = genreName;
+          
+          // Show timeframe selection
+          const screen = createTimeframeSelectionScreen(genreName);
+          await interaction.update({
+            embeds: screen.embeds,
+            components: screen.components
+          });
+          
+        } catch (error) {
+          logger.error({ error }, 'Failed to handle genre selection');
+          await interaction.reply({ 
+            content: 'Sorry darlin\', something went wrong. Please try again.',
+            ephemeral: true 
+          });
+        }
+        break;
+      }
+
+      default: {
+        logger.warn({ customId }, 'Unknown select menu interaction');
+        await interaction.reply({ 
+          content: 'Sorry, I didn\'t understand that selection.',
+          ephemeral: true 
+        });
+        break;
+      }
+    }
+  } catch (error) {
+    logger.error({ error }, 'Failed to handle select menu interaction');
+  }
+}
+
 export function installQuickActions(client: Client): void {
   // Handle slash commands
   client.on('interactionCreate', async (interaction) => {
@@ -711,14 +1440,22 @@ export function installQuickActions(client: Client): void {
       if (interaction.type === InteractionType.ApplicationCommand) {
         const chatInputInteraction = interaction as ChatInputCommandInteraction;
         logger.info({ commandName: chatInputInteraction.commandName }, 'Received slash command');
-        if (chatInputInteraction.commandName === 'menu') {
+        if (chatInputInteraction.commandName === 'menu' || chatInputInteraction.commandName === 'genres') {
           await handleSlashCommand(chatInputInteraction);
         }
       } else if (interaction.type === InteractionType.MessageComponent) {
-        const buttonInteraction = interaction as ButtonInteraction;
-        logger.info({ customId: buttonInteraction.customId }, 'Received button interaction');
-        if (buttonInteraction.customId.startsWith('bf_flow_')) {
-          await handleButtonInteraction(buttonInteraction);
+        if (interaction.isButton()) {
+          const buttonInteraction = interaction as ButtonInteraction;
+          logger.info({ customId: buttonInteraction.customId }, 'Received button interaction');
+          if (buttonInteraction.customId.startsWith('bf_')) {
+            await handleButtonInteraction(buttonInteraction);
+          }
+        } else if (interaction.isStringSelectMenu()) {
+          const selectInteraction = interaction as StringSelectMenuInteraction;
+          logger.info({ customId: selectInteraction.customId }, 'Received select menu interaction');
+          if (selectInteraction.customId.startsWith('bf_')) {
+            await handleSelectMenuInteraction(selectInteraction);
+          }
         }
       }
     } catch (error) {
@@ -728,6 +1465,9 @@ export function installQuickActions(client: Client): void {
 
   logger.info('Quick actions system installed');
 }
+
+// Export functions for use by message handler
+export { createGenreSelectionScreen };
 
 // Export the message handler for integration with main bot
 export { handleMessage as handleQuickActionMessage };
