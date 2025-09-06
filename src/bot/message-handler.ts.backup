@@ -8,7 +8,7 @@ import { formatBook, formatBookBullet, generateGoodreadsUrl } from '../utils/goo
 import { downloadMonitor } from '../services/download-monitor';
 import { SouthernBellePersonality_Test } from '../personality/southern-belle-test';
 import { createSearchResultButtons } from '../utils/discord-ui';
-// Removed createGenreSelectionScreen import - using flow engine instead
+import { createGenreSelectionScreen } from '../quick-actions';
 import { 
   renderHome, 
   navigateFromHome, 
@@ -19,7 +19,6 @@ import {
   clearHomeSession,
   updateHomeSession
 } from '../navigation/home-hub';
-import { FlowEngine } from '../flow/flow-engine';
 
 /**
  * Tracks user conversation state and interaction history
@@ -67,12 +66,10 @@ export class MessageHandler {
   private orchestrator: AudiobookOrchestrator;
   private sessions = new Map<string, UserSession>();
   private personality: SouthernBellePersonality_Test;
-  private flowEngine: FlowEngine;
 
   constructor() {
     this.orchestrator = new AudiobookOrchestrator();
     this.personality = new SouthernBellePersonality_Test();
-    this.flowEngine = new FlowEngine();
   }
 
   private getSession(userId: string): UserSession {
@@ -180,20 +177,6 @@ export class MessageHandler {
     
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(quickButtons));
     
-    // Add consistent bottom anchor buttons - New Chat on far left, Other Commands on right
-    const anchorButtons = [
-      new ButtonBuilder()
-        .setCustomId('home_new_chat')
-        .setLabel('New Chat')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId('other_cmds_open')
-        .setLabel('Other Commands')
-        .setStyle(ButtonStyle.Secondary)
-    ];
-    
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(anchorButtons));
-    
     return rows;
   }
 
@@ -241,20 +224,6 @@ export class MessageHandler {
     
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons1));
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(genreButtons2));
-    
-    // Add consistent bottom anchor buttons - New Chat on far left, Other Commands on right
-    const anchorButtons = [
-      new ButtonBuilder()
-        .setCustomId('home_new_chat')
-        .setLabel('New Chat')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId('other_cmds_open')
-        .setLabel('Other Commands')
-        .setStyle(ButtonStyle.Secondary)
-    ];
-    
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(anchorButtons));
     
     return rows;
   }
@@ -537,13 +506,10 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
             
           case 'browse_genres':
             try {
-              // Use flow engine for genre selection
-              this.flowEngine.navigateTo(interaction.user.id, 'Genre.Pick');
-              const rendered = this.flowEngine.renderRoute(interaction.user.id);
-              
+              const screen = await createGenreSelectionScreen();
               await interaction.reply({ 
-                embeds: rendered.embeds || [],
-                components: rendered.components || [],
+                embeds: screen.embeds,
+                components: screen.components,
                 flags: MessageFlags.Ephemeral 
               });
             } catch (error) {
@@ -893,13 +859,10 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
         
       } else if (interaction.customId === 'browse_genres') {
         try {
-          // Use flow engine for genre selection
-          this.flowEngine.navigateTo(interaction.user.id, 'Genre.Pick');
-          const rendered = this.flowEngine.renderRoute(interaction.user.id);
-          
+          const screen = await createGenreSelectionScreen();
           await interaction.reply({ 
-            embeds: rendered.embeds || [],
-            components: rendered.components || [],
+            embeds: screen.embeds,
+            components: screen.components,
             flags: MessageFlags.Ephemeral 
           });
         } catch (error) {
@@ -1146,43 +1109,6 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
           components: welcomeButtons,
           flags: MessageFlags.Ephemeral 
         });
-        
-      } else if (interaction.customId === 'other_cmds_open') {
-        // Handle "Other Commands" button - show other commands screen
-        const otherCommandsEmbed = new EmbedBuilder()
-          .setTitle('🔧 Other Commands')
-          .setDescription('Other commands, pick a utility, or hit New Chat to start over.')
-          .setColor(0x7C4DFF);
-
-        const otherCommandsRow = new ActionRowBuilder<ButtonBuilder>()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId('check_downloads')
-              .setLabel('📥 Check Downloads')
-              .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-              .setCustomId('show_help')
-              .setLabel('❓ Help')
-              .setStyle(ButtonStyle.Primary)
-          );
-
-        const otherCommandsAnchorRow = new ActionRowBuilder<ButtonBuilder>()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId('home_new_chat')
-              .setLabel('New Chat')
-              .setStyle(ButtonStyle.Success),
-            new ButtonBuilder()
-              .setCustomId('new_search')
-              .setLabel('Back to Search')
-              .setStyle(ButtonStyle.Secondary)
-          );
-          
-        await interaction.reply({ 
-          embeds: [otherCommandsEmbed],
-          components: [otherCommandsRow, otherCommandsAnchorRow],
-          flags: MessageFlags.Ephemeral 
-        });
       }
       
     } catch (error) {
@@ -1251,19 +1177,14 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
       // Handle genre browsing commands
       if (query.toLowerCase().match(/^(!?genres?|!?browse\s*genres?)$/)) {
         try {
-          // Use flow engine for genre selection
-          this.flowEngine.navigateTo(message.author.id, 'Genre.Pick');
-          const rendered = this.flowEngine.renderRoute(message.author.id);
-          
+          const screen = await createGenreSelectionScreen();
           const personalityMessage = this.personality.transformMessage_test(
             "Well honey, let's find you some books by genre! Pick what tickles your fancy:",
             'presenting'
           );
-          
           await message.reply({
             content: personalityMessage,
-            embeds: rendered.embeds || [],
-            components: rendered.components || []
+            components: screen.components
           });
           this.markButtonsShown(message.author.id);
           return;
@@ -1469,5 +1390,3 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
     return this.handleButtonInteraction(interaction);
   }
 }
-
-export const messageHandler = new MessageHandler();

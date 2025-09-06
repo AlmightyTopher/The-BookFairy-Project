@@ -62,7 +62,7 @@ client.on('messageCreate', async (message) => {
     
     // If quick actions didn't handle it, or it's a custom search/number/response, process with main handler
     if (!handledByQuickActions) {
-      await messageHandler.handle(message);
+      await messageHandler.handleMessage(message);
     }
   }
 });

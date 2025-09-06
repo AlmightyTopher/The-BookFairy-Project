@@ -67,5 +67,19 @@ export function createSearchResultButtons(
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
   }
   
+  // Add consistent bottom anchor buttons - New Chat on far left, Other Commands on right
+  const anchorButtons = [
+    new ButtonBuilder()
+      .setCustomId('home_new_chat')
+      .setLabel('New Chat')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('other_cmds_open')
+      .setLabel('Other Commands')
+      .setStyle(ButtonStyle.Secondary)
+  ];
+  
+  rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(anchorButtons));
+  
   return rows;
 }

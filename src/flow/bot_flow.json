@@ -1,0 +1,808 @@
+{
+  "routes": {
+    "Main": {
+      "type": "menu",
+      "title": "Book Search",
+      "greeting_pool": [
+        "Hey there, sugar! Let me help you find some books",
+        "Well hello there, darlin'! What kind of book are you lookin' for today?",
+        "Hey sweetie! Ready to find your next great read?",
+        "Hi there, honey! Let's get you some wonderful books!"
+      ],
+      "buttons": [
+        {
+          "label": "By Title",
+          "id": "search_title_open",
+          "on": "ByTitle.Input"
+        },
+        {
+          "label": "By Author", 
+          "id": "search_author_open",
+          "on": "ByAuthor.Input"
+        },
+        {
+          "label": "Describe the Book",
+          "id": "search_describe_open", 
+          "on": "DescribeBook.Input"
+        },
+        {
+          "label": "Browse Genres",
+          "id": "browse_genres_open",
+          "on": "Genre.Pick"
+        },
+        {
+          "label": "Audiobooks",
+          "id": "audiobooks_open",
+          "on": "Audiobooks.Menu"
+        },
+        {
+          "label": "More Options",
+          "id": "more_options_open",
+          "on": "Other.Menu"
+        },
+        {
+          "label": "Back",
+          "id": "home_back",
+          "on": "Main"
+        },
+        {
+          "label": "Next",
+          "id": "home_next",
+          "on": "Main"
+        }
+      ],
+      "globals": true
+    },
+    
+    "ByTitle.Input": {
+      "type": "input",
+      "title": "Search by Title",
+      "prompt": "What's the title of the book you're looking for?",
+      "placeholder": "Enter book title...",
+      "on_submit": "ByTitle.Results",
+      "submit_task": "fowler_search_title",
+      "globals": true
+    },
+    
+    "ByTitle.Results": {
+      "type": "results",
+      "title": "Title Search Results",
+      "max_items": 5,
+      "actions": [
+        {
+          "label": "More Info",
+          "id": "more_info",
+          "task": "goodreads_lookup",
+          "on_success": "Details.View"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist", 
+          "on": "Wishlist.Added"
+        }
+      ],
+      "pagination": {
+        "label": "Next",
+        "id": "next_page"
+      },
+      "new_search": {
+        "label": "New Search (Title)",
+        "id": "new_title_search",
+        "on": "ByTitle.Input"
+      },
+      "on_empty": "ByTitle.NoResults",
+      "globals": true
+    },
+    
+    "ByTitle.NoResults": {
+      "type": "no_results",
+      "title": "No Books Found",
+      "message": "Sorry sugar, I couldn't find any books with that title.",
+      "actions": [
+        {
+          "label": "Add Title to Wish List",
+          "id": "add_title_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "New Search (Title)",
+          "id": "new_title_search", 
+          "on": "ByTitle.Input"
+        }
+      ],
+      "globals": true
+    },
+    
+    "ByAuthor.Input": {
+      "type": "input",
+      "title": "Search by Author",
+      "prompt": "Who's the author you're looking for?",
+      "placeholder": "Enter author name...",
+      "on_submit": "ByAuthor.Results",
+      "submit_task": "fowler_search_author",
+      "globals": true
+    },
+    
+    "ByAuthor.Results": {
+      "type": "results", 
+      "title": "Author Search Results",
+      "max_items": 5,
+      "actions": [
+        {
+          "label": "More Info",
+          "id": "more_info",
+          "task": "goodreads_lookup",
+          "on_success": "Details.View"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist",
+          "on": "Wishlist.Added"
+        }
+      ],
+      "pagination": {
+        "label": "Next",
+        "id": "next_page"
+      },
+      "new_search": {
+        "label": "New Search (Author)",
+        "id": "new_author_search",
+        "on": "ByAuthor.Input"
+      },
+      "on_empty": "ByAuthor.NoResults",
+      "globals": true
+    },
+    
+    "ByAuthor.NoResults": {
+      "type": "no_results",
+      "title": "No Books Found",
+      "message": "Sorry darlin', I couldn't find any books by that author.",
+      "actions": [
+        {
+          "label": "Add Author to Wish List",
+          "id": "add_author_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "New Search (Author)",
+          "id": "new_author_search",
+          "on": "ByAuthor.Input"
+        }
+      ],
+      "globals": true
+    },
+    
+    "DescribeBook.Input": {
+      "type": "input",
+      "title": "Describe the Book",
+      "prompt": "Tell me about the book you're looking for (keywords, plot, themes, etc.)",
+      "placeholder": "Enter description or keywords...",
+      "on_submit": "DescribeBook.Results",
+      "submit_task": "fowler_search_description", 
+      "globals": true
+    },
+    
+    "DescribeBook.Results": {
+      "type": "results",
+      "title": "Description Search Results", 
+      "max_items": 5,
+      "actions": [
+        {
+          "label": "More Info",
+          "id": "more_info",
+          "task": "goodreads_lookup",
+          "on_success": "Details.View"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist",
+          "on": "Wishlist.Added"
+        }
+      ],
+      "pagination": {
+        "label": "Next",
+        "id": "next_page"
+      },
+      "new_search": {
+        "label": "New Search (Description)",
+        "id": "new_desc_search",
+        "on": "DescribeBook.Input"
+      },
+      "on_empty": "DescribeBook.NoResults",
+      "globals": true
+    },
+    
+    "DescribeBook.NoResults": {
+      "type": "no_results",
+      "title": "No Books Found",
+      "message": "Sorry honey, I couldn't find any books matching that description.",
+      "actions": [
+        {
+          "label": "Add Description to Wish List",
+          "id": "add_desc_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "New Search (Description)",
+          "id": "new_desc_search",
+          "on": "DescribeBook.Input"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Genre.Pick": {
+      "type": "genre_selector",
+      "title": "Browse by Genre",
+      "message": "What genre are you in the mood for?",
+      "selector_type": "dual_select",
+      "on_select": "Genre.Window",
+      "globals": true
+    },
+    
+    "Genre.Window": {
+      "type": "time_selector",
+      "title": "Time Window",
+      "message": "How far back should I look?",
+      "options": [
+        {
+          "label": "This Week",
+          "id": "week",
+          "value": "7d"
+        },
+        {
+          "label": "1 Month", 
+          "id": "month",
+          "value": "30d"
+        },
+        {
+          "label": "3 Months",
+          "id": "3months",
+          "value": "90d"
+        },
+        {
+          "label": "6 Months",
+          "id": "6months", 
+          "value": "180d"
+        },
+        {
+          "label": "1 Year",
+          "id": "year",
+          "value": "365d"
+        },
+        {
+          "label": "All Time",
+          "id": "all",
+          "value": "all"
+        }
+      ],
+      "on_select": "Genre.ResultsFetch",
+      "globals": true
+    },
+    
+    "Genre.ResultsFetch": {
+      "type": "task",
+      "task": "mam_fetch_genre",
+      "on_success": "Genre.Results",
+      "on_error": "Genre.NoResults"
+    },
+    
+    "Genre.Results": {
+      "type": "results",
+      "title": "Genre Browse Results",
+      "max_items": 5,
+      "actions": [
+        {
+          "label": "More Info",
+          "id": "more_info",
+          "task": "goodreads_lookup",
+          "on_success": "Details.View"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist",
+          "on": "Wishlist.Added"
+        }
+      ],
+      "pagination": {
+        "label": "Next",
+        "id": "next_page"
+      },
+      "new_search": {
+        "label": "Change Genre",
+        "id": "change_genre",
+        "on": "Genre.Pick"
+      },
+      "globals": true
+    },
+    
+    "Genre.NoResults": {
+      "type": "no_results",
+      "title": "No Books Found",
+      "message": "Sorry sweetie, I couldn't find any books in that genre and time window.",
+      "actions": [
+        {
+          "label": "Add Genre+Window to Wish List",
+          "id": "add_genre_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "Change Window",
+          "id": "change_window",
+          "on": "Genre.Window"
+        },
+        {
+          "label": "Change Genre",
+          "id": "change_genre",
+          "on": "Genre.Pick"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Details.View": {
+      "type": "details",
+      "title": "Book Details",
+      "fields": ["title", "authors", "series", "series_number", "summary", "rating"],
+      "actions": [
+        {
+          "label": "Download",
+          "id": "download",
+          "task": "fowler_fuzzy_match",
+          "on_success": "Download.Started"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "Back to Results",
+          "id": "back_results",
+          "on": "Return.Previous"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Download.Started": {
+      "type": "confirmation",
+      "title": "Download Started",
+      "message": "Your audiobook download has been started!",
+      "actions": [
+        {
+          "label": "View Download Progress",
+          "id": "view_progress",
+          "on": "Downloads.Progress"
+        },
+        {
+          "label": "Add Another Book",
+          "id": "add_another",
+          "on": "Search.Select"
+        },
+        {
+          "label": "Back to Results",
+          "id": "back_results", 
+          "on": "Return.Previous"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Search.Select": {
+      "type": "menu",
+      "title": "Add Another Book",
+      "message": "How would you like to search?",
+      "buttons": [
+        {
+          "label": "By Title",
+          "id": "by_title",
+          "on": "ByTitle.Input"
+        },
+        {
+          "label": "By Author",
+          "id": "by_author", 
+          "on": "ByAuthor.Input"
+        },
+        {
+          "label": "Browse Genre",
+          "id": "browse_genre",
+          "on": "Genre.Pick"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Audiobooks.Menu": {
+      "type": "menu",
+      "title": "Audiobooks",
+      "message": "Quick access to audiobook searches and downloads",
+      "buttons": [
+        {
+          "label": "Search Audiobooks by Title",
+          "id": "audio_title_search",
+          "on": "ByTitle.Input"
+        },
+        {
+          "label": "Search Audiobooks by Author",
+          "id": "audio_author_search",
+          "on": "ByAuthor.Input"
+        },
+        {
+          "label": "Browse Audiobook Genres",
+          "id": "audio_genre_browse",
+          "on": "Genre.Pick"
+        },
+        {
+          "label": "View Download Progress",
+          "id": "view_progress",
+          "on": "Downloads.Progress"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Other.Menu": {
+      "type": "menu",
+      "title": "Other Commands",
+      "message": "What would you like to do?",
+      "buttons": [
+        {
+          "label": "View Download Progress",
+          "id": "view_progress",
+          "on": "Downloads.Progress"
+        },
+        {
+          "label": "Wish List",
+          "id": "wishlist",
+          "on": "Wishlist.Menu"
+        },
+        {
+          "label": "Help",
+          "id": "help",
+          "on": "Help.Menu"
+        },
+        {
+          "label": "Settings",
+          "id": "settings",
+          "on": "Other.Settings"
+        },
+        {
+          "label": "About",
+          "id": "about",
+          "on": "Other.About"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Help.Menu": {
+      "type": "menu",
+      "title": "Help & Support",
+      "message": "What do you need help with?",
+      "buttons": [
+        {
+          "label": "Message Admin",
+          "id": "message_admin",
+          "task": "help_dm_admin",
+          "on_success": "Help.DMSent"
+        },
+        {
+          "label": "How to Search by Title",
+          "id": "help_title",
+          "on": "Help.SearchTitle"
+        },
+        {
+          "label": "How to Search by Author",
+          "id": "help_author", 
+          "on": "Help.SearchAuthor"
+        },
+        {
+          "label": "How to Describe Books",
+          "id": "help_describe",
+          "on": "Help.SearchDescription"
+        },
+        {
+          "label": "How to Browse Genres",
+          "id": "help_genre",
+          "on": "Help.BrowseGenre"
+        },
+        {
+          "label": "How Downloads Work",
+          "id": "help_downloads",
+          "on": "Help.Downloads"
+        },
+        {
+          "label": "How do I search for more information about books?",
+          "id": "help_more_info",
+          "on": "Help.MoreInfo"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Help.DMSent": {
+      "type": "confirmation",
+      "title": "Message Sent",
+      "message": "I've sent your message to the admin. They'll get back to you soon!",
+      "actions": [],
+      "globals": true
+    },
+    
+    "Wishlist.Added": {
+      "type": "confirmation", 
+      "title": "Added to Wish List",
+      "message": "I've added that to your wish list, sugar!",
+      "actions": [],
+      "globals": true
+    },
+    
+    "Downloads.Progress": {
+      "type": "progress",
+      "title": "Download Progress",
+      "refresh_interval": 30,
+      "actions": [
+        {
+          "label": "Refresh",
+          "id": "refresh",
+          "on": "Downloads.Progress"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Wishlist.Menu": {
+      "type": "menu",
+      "title": "Wish List",
+      "message": "What would you like to do with your wish list?",
+      "buttons": [
+        {
+          "label": "View Wish List",
+          "id": "view_wishlist",
+          "on": "Wishlist.View"
+        },
+        {
+          "label": "Add Item",
+          "id": "add_wishlist",
+          "on": "Wishlist.Add"
+        },
+        {
+          "label": "Remove Item",
+          "id": "remove_wishlist",
+          "on": "Wishlist.Remove"
+        },
+        {
+          "label": "Check Status",
+          "id": "status_wishlist",
+          "on": "Wishlist.Status"
+        }
+      ],
+      "admin_button": {
+        "label": "Admin View",
+        "id": "admin_wishlist",
+        "on": "Wishlist.Admin",
+        "requires": "user.isAdmin"
+      },
+      "globals": true
+    },
+    
+    "Other.Settings": {
+      "type": "menu",
+      "title": "Settings",
+      "message": "Bot settings and configuration options.",
+      "buttons": [
+        {
+          "label": "Notification Preferences",
+          "id": "notifications",
+          "on": "Other.Settings"
+        },
+        {
+          "label": "Default Search Options",
+          "id": "search_defaults",
+          "on": "Other.Settings"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Other.About": {
+      "type": "menu",
+      "title": "About Book Fairy",
+      "message": "Book Fairy Discord Bot - Your personal audiobook assistant!",
+      "buttons": [
+        {
+          "label": "Version Info",
+          "id": "version",
+          "on": "Other.About"
+        },
+        {
+          "label": "Credits",
+          "id": "credits",
+          "on": "Other.About"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Wishlist.View": {
+      "type": "results",
+      "title": "Your Wish List",
+      "max_items": 5,
+      "actions": [
+        {
+          "label": "More Info",
+          "id": "more_info",
+          "task": "goodreads_lookup",
+          "on_success": "Details.View"
+        },
+        {
+          "label": "Add to Wish List",
+          "id": "add_wishlist",
+          "on": "Wishlist.Added"
+        },
+        {
+          "label": "Remove Item",
+          "id": "remove_item",
+          "on": "Wishlist.Menu"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Wishlist.Add": {
+      "type": "input",
+      "title": "Add to Wish List",
+      "prompt": "What would you like to add to your wish list?",
+      "on_submit": "Wishlist.Added",
+      "globals": true
+    },
+    
+    "Wishlist.Remove": {
+      "type": "input",
+      "title": "Remove from Wish List",
+      "prompt": "What would you like to remove from your wish list?",
+      "on_submit": "Wishlist.Menu",
+      "globals": true
+    },
+    
+    "Wishlist.Status": {
+      "type": "menu",
+      "title": "Wish List Status",
+      "message": "Check the status of items in your wish list.",
+      "buttons": [
+        {
+          "label": "Check Availability",
+          "id": "check_available",
+          "on": "Wishlist.Menu"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Wishlist.Admin": {
+      "type": "menu",
+      "title": "Admin Wish List View",
+      "message": "Administrative view of all wish lists.",
+      "buttons": [
+        {
+          "label": "View All Lists",
+          "id": "view_all",
+          "on": "Wishlist.Admin"
+        }
+      ],
+      "globals": true
+    },
+    
+    "Help.SearchTitle": {
+      "type": "menu",
+      "title": "How to Search by Title",
+      "message": "Enter the exact or partial title of the book you're looking for. Examples: 'Harry Potter', 'Foundation', 'The Great Gatsby'",
+      "buttons": [],
+      "globals": true
+    },
+    
+    "Help.SearchAuthor": {
+      "type": "menu",
+      "title": "How to Search by Author",
+      "message": "Enter the author's name (first, last, or both). Examples: 'Stephen King', 'Agatha Christie', 'Isaac Asimov'",
+      "buttons": [],
+      "globals": true
+    },
+    
+    "Help.SearchDescription": {
+      "type": "menu",
+      "title": "How to Describe Books",
+      "message": "Describe the plot, themes, or keywords. Examples: 'space opera', 'detective mystery', 'vampire romance'",
+      "buttons": [],
+      "globals": true
+    },
+    
+    "Help.BrowseGenre": {
+      "type": "menu",
+      "title": "How to Browse Genres",
+      "message": "Select a genre and time window to see the latest books in that category.",
+      "buttons": [],
+      "globals": true
+    },
+    
+    "Help.Downloads": {
+      "type": "menu",
+      "title": "How Downloads Work",
+      "message": "When you find a book you like, click 'Download' and I'll start getting it for you!",
+      "buttons": [],
+      "globals": true
+    },
+    
+    "Help.MoreInfo": {
+      "type": "menu",
+      "title": "How to Get More Information",
+      "message": "Click 'More Info' on any search result to see detailed book information from Goodreads.",
+      "buttons": [],
+      "globals": true
+    },
+
+    "Common.Error": {
+      "type": "error",
+      "title": "Oops!",
+      "message": "Something went wrong, but don't you worry - I'll get you back home safe!",
+      "fallback": "Main",
+      "globals": true
+    }
+  },
+  
+  "global_buttons": [
+    {
+      "label": "New Chat",
+      "id": "home_new_chat", 
+      "on": "Main"
+    },
+    {
+      "label": "Other Commands",
+      "id": "other_cmds_open",
+      "on": "Other.Menu"
+    },
+    {
+      "label": "Help",
+      "id": "help",
+      "on": "Help.Menu"
+    }
+  ],
+  
+  "tasks": {
+    "fowler_search_title": {
+      "description": "Search for books by title using Fowler/Prowlarr",
+      "requires_env": ["MAM_USERNAME", "MAM_PASSWORD"]
+    },
+    "fowler_search_author": {
+      "description": "Search for books by author using Fowler/Prowlarr", 
+      "requires_env": ["MAM_USERNAME", "MAM_PASSWORD"]
+    },
+    "fowler_search_description": {
+      "description": "Search for books by description/keywords using Fowler/Prowlarr",
+      "requires_env": ["MAM_USERNAME", "MAM_PASSWORD"]
+    },
+    "mam_fetch_genre": {
+      "description": "Fetch books by genre and time window from MAM",
+      "requires_env": ["MAM_USERNAME", "MAM_PASSWORD"]
+    },
+    "goodreads_lookup": {
+      "description": "Get book details from Goodreads API"
+    },
+    "fowler_fuzzy_match": {
+      "description": "Find and download best matching audiobook from MAM",
+      "requires_env": ["MAM_USERNAME", "MAM_PASSWORD"]
+    },
+    "help_dm_admin": {
+      "description": "Send DM to admin user"
+    }
+  },
+  
+  "validation": {
+    "enforce_globals": true,
+    "validate_links": true,
+    "check_required_actions": {
+      "results": ["More Info", "Add to Wish List"],
+      "no_results": ["Add * to Wish List"]
+    }
+  }
+}
