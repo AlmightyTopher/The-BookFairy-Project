@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
+    "test:mam-flow": "tsx tests/mam-flow-test.ts",
+    "test:audiobooks-flow": "node test-audiobooks-flow.js",
     "coverage": "vitest run --coverage",
     "start": "node dist/index.js",
     "register:qa": "node scripts/register-quick-actions.js"
@@ -18,6 +20,7 @@
   "dependencies": {
     "@types/cheerio": "^0.22.35",
     "@types/natural": "^5.1.5",
+    "@types/puppeteer": "^5.4.7",
     "axios": "^1.11.0",
     "bottleneck": "^2.19.5",
     "cheerio": "^1.1.2",
@@ -29,6 +32,7 @@
     "p-retry": "^7.0.0",
     "pino": "^8.17.2",
     "prom-client": "^15.1.3",
+    "puppeteer": "^24.18.0",
     "undici": "^7.15.0",
     "zod": "^3.25.76"
   },

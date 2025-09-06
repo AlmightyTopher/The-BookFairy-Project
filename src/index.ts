@@ -8,7 +8,6 @@ import { logger, withReqId } from './utils/logger';
 import { startMetrics, requests } from './metrics/server';
 import { randomUUID } from 'crypto';
 import { downloadMonitor } from './services/download-monitor';
-import { registerBookDetailHandlers } from './discord/interactions/bookDetails';
 
 const client = new Client({
   intents: [
@@ -108,10 +107,22 @@ client.login(config.discord.token)
   });
 
 // Graceful shutdown
-const shutdown = () => {
+const shutdown = async () => {
   logger.info('Shutting down gracefully...');
-  downloadMonitor.stopMonitoring();
-  client.destroy();
+  
+  try {
+    // Stop download monitoring
+    downloadMonitor.stopMonitoring();
+    
+    // Close browser scraper
+    await browserScraper.close();
+    
+    // Destroy Discord client
+    client.destroy();
+  } catch (error) {
+    logger.error({ error }, 'Error during shutdown');
+  }
+  
   process.exit(0);
 };
 

@@ -18,7 +18,7 @@ export const MangoItemSchema = z.object({
   genre: z.string(),
   timeframe: TimeframeSchema,
   url: z.string().url(),
-  source: z.literal('mango'),
+  source: z.union([z.literal('mango'), z.literal('mam')]),
   rating: z.number().optional(),
   downloads: z.number().optional(),
   publishedDate: z.string().optional(),
