@@ -88,18 +88,24 @@ export async function searchProwlarr(query: string, options: Partial<SearchOptio
     stateDir: options.stateDir ?? './data'
   } as const;
 
-  // Make the request
-  const { data } = await retry(() =>
-    prowlarrClient.get<ProwlarrRelease[]>('/api/v1/search', {
-      params: {
-        query,
-        categories: config.prowlarr.categories,
-        type: 'search',
-      },
-    })
-  );
-
-  console.log('Raw Prowlarr response:', JSON.stringify(data, null, 2));
+  // Make the request with detailed error logging
+  let data;
+  try {
+    const resp = await retry(() =>
+      prowlarrClient.get<ProwlarrRelease[]>('/api/v1/search', {
+        params: {
+          query,
+          categories: config.prowlarr.categories,
+          type: 'search',
+        },
+      })
+    );
+    data = resp.data;
+    console.log('Raw Prowlarr response:', JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('[Prowlarr] Search error:', err && (err.stack || err.message || err));
+    throw err;
+  }
 
   let results = data;
 

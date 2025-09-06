@@ -150,6 +150,14 @@ export async function navigateFromHome(
   customId: string, 
   interaction: ButtonInteraction
 ): Promise<{ action: string; data?: any } | null> {
+  // Ignore detail/download buttons; they're handled elsewhere.
+  if (
+    interaction.isButton() &&
+    /^BOOK_(VIEW|DL_YES|DL_NO):/.test(interaction.customId)
+  ) {
+    return null; // let bookDetails handler take it
+  }
+
   const userId = interaction.user.id;
   const session = getHomeSession(userId);
   

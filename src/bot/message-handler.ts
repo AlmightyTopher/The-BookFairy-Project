@@ -129,9 +129,9 @@ export class MessageHandler {
       .join('\n');
 
     if (hasNextPage) {
-      responseMsg += `\n\nSay "next" to see more results, or pick a number to download!`;
+      responseMsg += `\n\nSay "next" to see more results, or pick a number to view details!`;
     } else {
-      responseMsg += `\n\nPick a number to download!`;
+      responseMsg += `\n\nPick a number to view details!`;
     }
 
     return responseMsg;

@@ -488,9 +488,9 @@ export class UnifiedNavigation {
 
     const hasNextPage = page < totalPages;
     if (hasNextPage) {
-      content += `\n\nSay "next" to see more results, or pick a number to download!`;
+      content += `\n\nSay "next" to see more results, or pick a number to view details!`;
     } else {
-      content += `\n\nPick a number to download!`;
+      content += `\n\nPick a number to view details!`;
     }
 
     const components: ActionRowBuilder<ButtonBuilder>[] = [];

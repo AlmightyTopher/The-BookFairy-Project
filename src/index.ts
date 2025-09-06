@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Client, GatewayIntentBits, Partials, MessageFlags } from 'discord.js';
 import { MessageHandler } from './bot/message-handler';
 import { installQuickActions, handleQuickActionMessage } from './quick-actions';
@@ -7,6 +8,7 @@ import { logger, withReqId } from './utils/logger';
 import { startMetrics, requests } from './metrics/server';
 import { randomUUID } from 'crypto';
 import { downloadMonitor } from './services/download-monitor';
+import { registerBookDetailHandlers } from './discord/interactions/bookDetails';
 
 const client = new Client({
   intents: [
@@ -32,6 +34,10 @@ client.once('clientReady', () => {
   // Set up download monitor with Discord client
   downloadMonitor.setDiscordClient(client);
   logger.info('Download monitor initialized with Discord client');
+  
+  // Register book detail handlers
+  registerBookDetailHandlers(client);
+  console.log("Book detail handlers registered");
   
   // Start metrics server
   startMetrics(parseInt(process.env.METRICS_PORT || '9090'));

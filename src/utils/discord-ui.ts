@@ -1,4 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { bookSelectButton } from '../discord/ui/bookButtons';
+import { BookMeta } from '../integrations/hardcover/client';
 
 /**
  * Utility functions for creating Discord UI components.
@@ -6,12 +8,12 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
  */
 
 /**
- * Creates search result buttons with numbered download options and navigation.
+ * Creates search result buttons with numbered book detail options and navigation.
  * 
  * @param results - Array of search results to create buttons for
  * @param startIndex - Starting index for button numbering (for pagination)
  * @param hasNextPage - Whether there are more results available
- * @returns Array of ActionRowBuilder components with download and navigation buttons
+ * @returns Array of ActionRowBuilder components with book detail and navigation buttons
  */
 export function createSearchResultButtons(
   results: any[], 
@@ -23,13 +25,15 @@ export function createSearchResultButtons(
   // Create numbered buttons for up to 5 results (Discord's limit per row)
   const buttons: ButtonBuilder[] = [];
   for (let i = 0; i < Math.min(results.length, 5); i++) {
-    const buttonNumber = startIndex + i + 1;
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(`download_${buttonNumber}`)
-        .setLabel(`${buttonNumber}`)
-        .setStyle(ButtonStyle.Primary)
-    );
+    const book = results[i];
+    const meta: BookMeta = {
+      title: book.title,
+      author: book.author,
+      isbn: book.isbn
+    };
+    
+    const button = bookSelectButton(meta, startIndex + i + 1);
+    buttons.push(button);
   }
   
   // Add buttons to row
@@ -48,13 +52,6 @@ export function createSearchResultButtons(
         .setStyle(ButtonStyle.Secondary)
     );
   }
-  
-  navButtons.push(
-    new ButtonBuilder()
-      .setCustomId('more_info')
-      .setLabel('📖 More Info')
-      .setStyle(ButtonStyle.Secondary)
-  );
   
   navButtons.push(
     new ButtonBuilder()
