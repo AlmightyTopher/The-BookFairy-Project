@@ -23,6 +23,23 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger';
 
+/**
+ * Known home hub button IDs for validation
+ * Used to validate button interactions before processing
+ */
+const KNOWN_HOME_IDS = new Set([
+  'search_title_open',
+  'search_author_open', 
+  'search_describe_open',
+  'browse_genres_open',
+  'audiobooks_open',
+  'more_options_open',
+  'other_cmds_open',
+  'home_new_chat',
+  'home_back',
+  'home_next'
+]);
+
 // Session interface for home hub state management
 export interface HomeSession {
   lastScene?: string;
@@ -156,6 +173,12 @@ export async function navigateFromHome(
     /^BOOK_(VIEW|DL_YES|DL_NO):/.test(interaction.customId)
   ) {
     return null; // let bookDetails handler take it
+  }
+
+  // Validate button ID using KNOWN_HOME_IDS set
+  if (!KNOWN_HOME_IDS.has(customId)) {
+    logger.debug({ customId }, 'Unknown home hub button');
+    return null;
   }
 
   const userId = interaction.user.id;

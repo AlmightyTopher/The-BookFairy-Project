@@ -69,6 +69,28 @@ export async function renderAuthorResults(interaction: any, authorQuery: string,
   });
 }
 
+// Session management for author searches
+const activeSessions = new Map<string, Set<string>>();
+
+export function isInAuthorSession(guildId: string | null, userId: string): boolean {
+  if (!guildId) return false;
+  return activeSessions.get(guildId)?.has(userId) ?? false;
+}
+
+export function startAuthorSession(guildId: string, userId: string): void {
+  if (!activeSessions.has(guildId)) {
+    activeSessions.set(guildId, new Set());
+  }
+  activeSessions.get(guildId)!.add(userId);
+}
+
+export function endAuthorSession(guildId: string, userId: string): void {
+  activeSessions.get(guildId)?.delete(userId);
+}
+
+// Export both function names for compatibility
+export const registerAuthorSearchHandlers = registerAuthorUIHandlers;
+
 // INTERNAL: handlers for sorting and pagination
 export function registerAuthorUIHandlers(client: Client) {
   client.on("interactionCreate", async (i: Interaction) => {

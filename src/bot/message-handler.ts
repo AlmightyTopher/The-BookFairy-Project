@@ -1237,7 +1237,7 @@ Contact an administrator if you're havin' trouble. I'm just a fairy, after all! 
       logger.info({ query }, 'Processing book request');
 
       // If it's just a greeting or empty query, let quick-actions handle it
-      if (!query || query.length < 3 || /^(hi|hello|hey|help|\?)$/i.test(query.trim()) || forwardLegacyToHome(query)) {
+      if (!query || query.length < 3 || /^(hi|hello|hey|help|\?)$/i.test(query.trim())) {
         // Don't handle greetings here - let quick-actions system handle them
         return;
       }
