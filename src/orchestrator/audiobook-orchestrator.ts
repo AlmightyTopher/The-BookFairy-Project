@@ -32,7 +32,7 @@ export class AudiobookOrchestrator {
     logger.info({ query }, 'Processing request using rule-based parsing (LLM-free)');
     
     // Quick check for "similar to" patterns before going to LLM
-    if (query.match(/(?:similar|like)\s+(?:to\s+)?/i)) {
+    if (query && query.match(/(?:similar|like)\s+(?:to\s+)?/i)) {
       const title = this.extractBookTitleFromSimilarRequest(query);
       return this.findSimilarBooks({ 
         title,
@@ -44,7 +44,7 @@ export class AudiobookOrchestrator {
     }
     
     // Quick check for simple "find X" patterns to bypass LLM entirely
-    const simpleSearchMatch = query.match(/^(?:find|get|search for|download|look for)\s+(.+?)(?:\s+by\s+(.+?))?$/i);
+    const simpleSearchMatch = query && query.match(/^(?:find|get|search for|download|look for)\s+(.+?)(?:\s+by\s+(.+?))?$/i);
     if (simpleSearchMatch) {
       let title = simpleSearchMatch[1].trim();
       let author = simpleSearchMatch[2]?.trim();
@@ -140,7 +140,7 @@ export class AudiobookOrchestrator {
       
       // Handle regular book requests
       if (intent.extracted) {
-        if (query.toLowerCase().includes('similar to') || query.toLowerCase().includes('like')) {
+        if (query && (query.toLowerCase().includes('similar to') || query.toLowerCase().includes('like'))) {
           return this.findSimilarBooks(intent.extracted);
         }
         return this.processAudiobookRequest(intent.extracted);
@@ -168,7 +168,10 @@ export class AudiobookOrchestrator {
     const similarPatterns = [
       /(?:similar|like|recommendations?\s+for)\s+(?:to\s+)?["']?([^"']+?)["']?\s*$/i,
       /find.*(?:similar|like)\s+(?:to\s+)?["']?([^"']+?)["']?\s*$/i,
-      /(?:books?|audiobooks?)\s+(?:similar|like)\s+(?:to\s+)?["']?([^"']+?)["']?\s*$/i
+      /(?:books?|audiobooks?)\s+(?:similar|like)\s+(?:to\s+)?["']?([^"']+?)["']?\s*$/i,
+      /anything\s+like\s+(.+)$/i,
+      /I\s+want\s+books\s+like\s+(.+)$/i,
+      /recommend\s+something\s+similar\s+to\s+["']?([^"']+?)["']?\s*$/i
     ];
 
     for (const pattern of similarPatterns) {
@@ -178,6 +181,7 @@ export class AudiobookOrchestrator {
       }
     }
 
+    // Handle edge cases - return the original query as-is
     return query.trim();
   }
 

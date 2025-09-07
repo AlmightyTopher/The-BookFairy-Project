@@ -1,218 +1,159 @@
-/* Filename: src/integrations/hardcover/client.ts
-   Purpose: Robust Hardcover GraphQL client for cover+details.
+const API_URL = process.env.HARDCOVER_API_URL || "https://api.hardcover.app/v1/graphql";
+const TOKEN = process.env.HARDCOVER_API_TOKEN;
+const UA = process.env.HARDCOVER_USER_AGENT || "BookFairy/1.0 (+github.com/AlmightyTopher/The-BookFairy-Project)";
 
-   Requires in .env:
-     HARDCOVER_API_TOKEN= (raw token, not including the word "Bearer")
-     HARDCOVER_GRAPHQL_URL=https://api.hardcover.app/v1/graphql
-*/
+if (!TOKEN) throw new Error("HARDCOVER_API_TOKEN is required");
 
-// Warning for missing token
-if (!process.env.HARDCOVER_API_TOKEN) {
-  console.warn("WARN: HARDCOVER_API_TOKEN is not set");
+type GQLError = { message: string };
+type GQLRes<T> = { data?: T; errors?: GQLError[] };
+
+// Types for book metadata
+export interface BookMeta {
+  title?: string | null;
+  author?: string | null;
+  hcId?: number | string | null;
+  isbn?: string | null;
+  series?: string | null;
+  seriesNumber?: string | number | null;
 }
 
-const HC_URL = process.env.HARDCOVER_GRAPHQL_URL ?? "https://api.hardcover.app/v1/graphql";
-const HC_TOKEN = process.env.HARDCOVER_API_TOKEN ?? "";
-
-type HCImage = { url?: string | null };
-type HCSeriesNode = { position?: number | null; series?: { name?: string | null } | null };
-
-export type BookMeta = {
-  title?: string;
-  author?: string;
-  isbn?: string;
-  hcId?: number;
-};
-
-export type BookDetails = {
-  title: string;
-  authors: string[];
-  seriesName?: string;
-  seriesNumber?: number;
-  description?: string;
-  imageUrl?: string | null;
-  isbn13?: string | null;
-  hcId?: number | null;
-};
-
-function bearer(): Record<string, string> {
-  return HC_TOKEN ? { authorization: `Bearer ${HC_TOKEN}` } : {};
+export interface BookDetails {
+  hcId?: number | string | null;
+  title?: string | null;
+  authors?: string[];
+  description?: string | null;
+  coverUrl?: string | null;
+  seriesName?: string | null;
+  seriesNumber?: string | number | null;
+  year?: number | null;
+  hasAudio?: boolean | null;
+  isbns?: string[] | null;
 }
 
-async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  if (!HC_TOKEN) throw new Error("Hardcover token missing");
-  const res = await fetch(HC_URL, {
+export async function gql<T>(query: string, variables?: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(API_URL, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "user-agent": "BookFairy/1.0",
-      ...bearer(),
-    },
+    headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}`, "user-agent": UA },
     body: JSON.stringify({ query, variables }),
+    // @ts-ignore Node 18+ global fetch supports AbortSignal
+    signal,
   });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Hardcover HTTP ${res.status}: ${txt}`);
-  }
-  const json = await res.json();
-  if (json.errors) throw new Error(`Hardcover GraphQL error: ${JSON.stringify(json.errors)}`);
-  return json.data as T;
+  if (!res.ok) throw new Error(`Hardcover HTTP ${res.status} ${await res.text().catch(() => "")}`);
+  const json = (await res.json()) as GQLRes<T>;
+  if (json.errors?.length) throw new Error(json.errors.map(e => e.message).join("; "));
+  if (!json.data) throw new Error("Hardcover: empty data");
+  return json.data;
 }
 
-// Normalize: drop subtitles after ":" and trim noisy bits that hurt search.
-function normalizeTitle(raw?: string) {
-  if (!raw) return "";
-  const primary = raw.split(":")[0]; // "The Good Guy's Guide to Great Sex"
-  return primary.replace(/\s+/g, " ").trim();
-}
+export const upcase = (s?: string | null) => (s ? s.toUpperCase() : undefined);
 
-async function searchBookIdByTitleAuthor(title: string, author?: string): Promise<number | null> {
-  const q = [normalizeTitle(title), author].filter(Boolean).join(" ");
-  // Use results { id } (more stable than "ids" across schema revs)
-  const query = /* GraphQL */ `
-    query ($q: String!, $page: Int!, $per: Int!) {
-      search(query: $q, query_type: "Book", page: $page, per_page: $per) {
-        results { id }
+// GraphQL queries
+const SEARCH_BOOKS_QUERY = /* GraphQL */ `
+  query SearchBooks($q: String!, $limit: Int!, $offset: Int!) {
+    search(query: $q, query_type: book, limit: $limit, offset: $offset) {
+      score
+      book {
+        id title author_names series_names series_sequence release_year
+        has_audiobook has_ebook isbns image { url } description
       }
     }
-  `;
+  }
+`;
+
+const BOOK_DETAILS_QUERY = /* GraphQL */ `
+  query BookDetails($id: bigint!) {
+    books_by_pk(id: $id) {
+      id title author_names series_names series_sequence description release_year
+      image { url }
+      isbns has_audiobook has_ebook
+    }
+  }
+`;
+
+// Helper function to build search query
+function buildSearchQuery(meta: BookMeta): string {
+  const parts: string[] = [];
+  
+  if (meta.title) parts.push(meta.title);
+  if (meta.author) parts.push(meta.author);
+  if (meta.series) parts.push(meta.series);
+  
+  return parts.join(" ");
+}
+
+// Main functions
+export async function getBookDetails(meta: BookMeta): Promise<BookDetails | null> {
   try {
-    const data = await gql<{ search: { results?: Array<{ id: number }> } }>(query, { q, page: 1, per: 5 });
-    const id = data?.search?.results?.[0]?.id ?? null;
-    return id ?? null;
-  } catch {
+    // If we have an hcId, fetch directly
+    if (meta.hcId) {
+      const data = await gql<{ books_by_pk: any }>(BOOK_DETAILS_QUERY, { id: Number(meta.hcId) });
+      const book = data.books_by_pk;
+      
+      if (book) {
+        return {
+          hcId: book.id,
+          title: book.title,
+          authors: book.author_names || [],
+          description: book.description,
+          coverUrl: book.image?.url,
+          seriesName: book.series_names?.[0],
+          seriesNumber: book.series_sequence,
+          year: book.release_year,
+          hasAudio: book.has_audiobook,
+          isbns: book.isbns
+        };
+      }
+    }
+
+    // Otherwise, search for the book
+    const query = buildSearchQuery(meta);
+    if (!query) return null;
+
+    const searchData = await gql<{ search: { score: number; book: any }[] }>(SEARCH_BOOKS_QUERY, {
+      q: query,
+      limit: 5,
+      offset: 0
+    });
+
+    const books = searchData.search?.map(s => s.book).filter(Boolean) || [];
+    
+    // Find best match
+    for (const book of books) {
+      // Simple matching logic - can be improved
+      const titleMatch = !meta.title || book.title?.toLowerCase().includes(meta.title.toLowerCase());
+      const authorMatch = !meta.author || (book.author_names || []).some((a: string) => 
+        a.toLowerCase().includes(meta.author!.toLowerCase()) || meta.author!.toLowerCase().includes(a.toLowerCase())
+      );
+      
+      if (titleMatch && authorMatch) {
+        return {
+          hcId: book.id,
+          title: book.title,
+          authors: book.author_names || [],
+          description: book.description,
+          coverUrl: book.image?.url,
+          seriesName: book.series_names?.[0],
+          seriesNumber: book.series_sequence,
+          year: book.release_year,
+          hasAudio: book.has_audiobook,
+          isbns: book.isbns
+        };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[getBookDetails] error:", error);
     return null;
   }
 }
 
-async function fetchBookById(id: number) {
-  const query = /* GraphQL */ `
-    query ($id: Int!) {
-      books(where: { id: { _eq: $id } }, limit: 1) {
-        id
-        title
-        description
-        author_names
-        default_cover_edition { image { url } }
-        book_series { position series { name } }
-        editions(limit: 1, order_by: {release_date: desc}) { isbn_13 }
-      }
-    }
-  `;
-  const data = await gql<{
-    books: Array<{
-      id: number;
-      title: string;
-      description?: string | null;
-      author_names?: string[] | null;
-      default_cover_edition?: { image?: HCImage | null } | null;
-      book_series?: HCSeriesNode[] | null;
-      editions?: Array<{ isbn_13?: string | null }> | null;
-    }>;
-  }>(query, { id });
-
-  const b = data.books?.[0];
-  if (!b) return null;
-
-  const seriesNode = (b.book_series ?? []).find(Boolean) ?? null;
-  return {
-    hcId: b.id,
-    title: b.title,
-    description: b.description ?? undefined,
-    authors: (b.author_names ?? []).filter(Boolean) as string[],
-    imageUrl: b.default_cover_edition?.image?.url ?? null,
-    seriesName: seriesNode?.series?.name ?? undefined,
-    seriesNumber: seriesNode?.position ?? undefined,
-    isbn13: b.editions?.[0]?.isbn_13 ?? null,
-  } as BookDetails;
-}
-
-async function fetchEditionByIsbn(isbn: string) {
-  const clean = isbn.replace(/[^0-9Xx]/g, "");
-  if (!clean) return null;
-  const q = /* GraphQL */ `
-    query ($isbn13: String, $isbn10: String) {
-      editions(
-        where: { _or: [{ isbn_13: { _eq: $isbn13 } }, { isbn_10: { _eq: $isbn10 } }] }
-        limit: 1
-      ) {
-        id
-        isbn_13
-        image { url }
-        book {
-          id
-          title
-          description
-          author_names
-          default_cover_edition { image { url } }
-          book_series { position series { name } }
-        }
-      }
-    }
-  `;
-  const data = await gql<{
-    editions: Array<{
-      id: number;
-      isbn_13?: string | null;
-      image?: HCImage | null;
-      book: {
-        id: number;
-        title: string;
-        description?: string | null;
-        author_names?: string[] | null;
-        default_cover_edition?: { image?: HCImage | null } | null;
-        book_series?: HCSeriesNode[] | null;
-      };
-    }>;
-  }>(q, {
-    isbn13: clean.length === 13 ? clean : null,
-    isbn10: clean.length === 10 ? clean : null,
-  });
-
-  const ed = data.editions?.[0];
-  if (!ed) return null;
-
-  const seriesNode = (ed.book.book_series ?? []).find(Boolean) ?? null;
-  return {
-    hcId: ed.book.id,
-    title: ed.book.title,
-    description: ed.book.description ?? undefined,
-    authors: (ed.book.author_names ?? []).filter(Boolean) as string[],
-    imageUrl: ed.book.default_cover_edition?.image?.url ?? ed.image?.url ?? null,
-    seriesName: seriesNode?.series?.name ?? undefined,
-    seriesNumber: seriesNode?.position ?? undefined,
-    isbn13: ed.isbn_13 ?? null,
-  } as BookDetails;
-}
-
-/** Public: simplest cover URL probe for list views */
-export async function getBookCoverUrl(opts: BookMeta): Promise<string | null> {
+export async function getBookCoverUrl(meta: BookMeta): Promise<string | undefined> {
   try {
-    const byIsbn = opts.isbn ? await fetchEditionByIsbn(opts.isbn) : null;
-    if (byIsbn?.imageUrl) return byIsbn.imageUrl;
-
-    const id = opts.hcId ?? (opts.title ? await searchBookIdByTitleAuthor(opts.title, opts.author) : null);
-    if (!id) return null;
-
-    const bk = await fetchBookById(id);
-    return bk?.imageUrl ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** Public: full details for the detail card */
-export async function getBookDetails(opts: BookMeta): Promise<BookDetails | null> {
-  if (!HC_TOKEN) return null;
-  try {
-    if (opts.isbn) {
-      const d = await fetchEditionByIsbn(opts.isbn);
-      if (d) return d;
-    }
-    const id = opts.hcId ?? (opts.title ? await searchBookIdByTitleAuthor(opts.title, opts.author) : null);
-    if (!id) return null;
-    return await fetchBookById(id);
-  } catch {
-    return null;
+    const details = await getBookDetails(meta);
+    return details?.coverUrl || undefined;
+  } catch (error) {
+    console.error("[getBookCoverUrl] error:", error);
+    return undefined;
   }
 }

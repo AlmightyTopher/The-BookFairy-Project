@@ -1,0 +1,16 @@
+{
+  "found": [
+    { "mode": "title", "query": "Dune" },
+    { "mode": "author", "query": "Brandon Sanderson" },
+    { "mode": "genre", "query": "fantasy" },
+    { "mode": "description", "query": "science fiction desert planet spice" },
+    { "mode": "title", "query": "Harry Potter" }
+  ],
+  "notFound": [
+    { "mode": "title", "query": "NopeBook Zero by Nunya" },
+    { "mode": "author", "query": "Imaginary Personface" },
+    { "mode": "genre", "query": "Underwater Basketweaving Noir" },
+    { "mode": "description", "query": "post apocalyptic hamsters on Mars with banjos" },
+    { "mode": "title", "query": "The Unfindable Tome of Nothingness" }
+  ]
+}
