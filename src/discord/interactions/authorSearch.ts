@@ -3,6 +3,7 @@ import { findBooksByAuthor, type SortKey, type BookMeta } from "../../search/aut
 import { vput, vget } from "../../state/viewStore";
 import { buildSortRow } from "../ui/sortMenu";
 import { bookSelectButton } from "../ui/bookButtons";
+import { runAuthorFlow } from "../../features/authorFlow";
 
 type AuthorState = {
   kind: "author";
@@ -46,27 +47,9 @@ async function compose(authorQuery: string, sort: SortKey, page: number) {
 
 // PUBLIC: kick off an Author search reply (use this in your existing flow)
 export async function renderAuthorResults(interaction: any, authorQuery: string, sort: SortKey = "rating_desc", page = 0) {
-  const { results, total, slice, lines } = await compose(authorQuery, sort, page);
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  // store a tiny view state id
-  const stateId = vput<AuthorState>({ kind: "author", query: authorQuery, page, sort, total });
-
-  await interaction.reply({
-    content:
-      `Showing ${page * PAGE_SIZE + 1}-${page * PAGE_SIZE + slice.length} of ${total} results for **${authorQuery}** (Page ${page + 1}/${totalPages})\n\n` +
-      lines.join("\n") + `\n\nSay "next" to see more results, or pick a number to view details!`,
-    components: [
-      // numbered buttons 1–N (BOOK_VIEW flow)
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        ...slice.map((m: BookMeta, idx: number) => bookSelectButton(m, idx + 1))
-      ),
-      // sort menu keeps state id
-      buildSortRow(stateId, sort),
-      // page row
-      buildPageRow(stateId, page, total)
-    ]
-  });
+  // Use the new Hardcover author flow instead of the old paginated results
+  await runAuthorFlow(interaction, authorQuery);
+  return;
 }
 
 // Session management for author searches

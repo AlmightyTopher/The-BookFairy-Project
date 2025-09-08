@@ -2,6 +2,7 @@ import type { ButtonInteraction, ChatInputCommandInteraction } from "discord.js"
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from "discord.js";
 import { listBooksByAuthor, bookMenuFromBookId } from "../integrations/hardcover/service";
 import { showBookMenu } from "./bookMenu";
+import { requestDownload } from "../services/downloads";
 
 export async function runAuthorFlow(
   interaction: ChatInputCommandInteraction | ButtonInteraction,
@@ -42,7 +43,14 @@ export async function runAuthorFlow(
     if (pick?.id) {
       const data = await bookMenuFromBookId(Number(pick.id));
       await showBookMenu(interaction, data, {
-        onConfirmDownload: async ({ smartQuery }) => { /* hook existing prowlarr relay */ },
+        onConfirmDownload: async ({ smartQuery }) => {
+          await requestDownload({
+            title: smartQuery,
+            author: data.authors?.join(", "),
+            userId: interaction.user.id,
+            channelId: interaction.channel?.id,
+          });
+        },
       });
       return;
     }

@@ -1260,6 +1260,8 @@ async function handleMessage(message: Message, client: Client): Promise<boolean>
 
   const content = message.content.toLowerCase().trim();
   const userId = message.author.id;
+  const channelId = message.channel?.id || null;
+  const session = getSession(channelId, userId);
 
   // Simple greetings should go to main menu
   const greetings = ['hi', 'hello', 'hey', 'help', 'menu', 'start'];
@@ -1267,19 +1269,58 @@ async function handleMessage(message: Message, client: Client): Promise<boolean>
   
   // Very short messages are probably greetings or unclear
   if (isGreeting || content.length < 4) {
-    if (!flowEngine) {
-      logger.error('Flow engine not initialized in quick actions');
-      return false;
-    }
-    
-    // Navigate to main menu
-    flowEngine.navigateTo(userId, 'Main');
-    const rendered = flowEngine.renderRoute(userId);
-    
+    // Show main screen for greetings
+    const screen = createMainScreen();
     await message.reply({
-      embeds: rendered.embeds || [],
-      components: rendered.components || []
+      embeds: screen.embeds,
+      components: screen.components
     });
+    return true;
+  }
+
+  // Check if user has an active expectation
+  if (isExpectationValid(session) && session.expecting) {
+    // Handle expected input
+    setProcessingState(channelId, userId);
+    
+    const command = normalizeCommand(session.expecting, content);
+    
+    // Send acknowledgment
+    const ackMessage = 'Processing your request...';
+    await message.reply({ content: ackMessage });
+
+    // Clear expectation
+    clearExpectation(channelId, userId);
+
+    // Dispatch to pipeline
+    await dispatchUserQuery({
+      userId: userId,
+      username: message.author.username,
+      channelId: channelId || 'dm',
+      text: command,
+      source: 'quick_actions'
+    });
+
+    return true;
+  }
+
+  // Check if this looks like a custom search
+  if (isCustomTextInput(content)) {
+    setProcessingState(channelId, userId);
+    
+    // Send acknowledgment
+    const ackMessage = 'Processing your request...';
+    await message.reply({ content: ackMessage });
+
+    // Dispatch to pipeline
+    await dispatchUserQuery({
+      userId: userId,
+      username: message.author.username,
+      channelId: channelId || 'dm',
+      text: content,
+      source: 'quick_actions'
+    });
+
     return true;
   }
 

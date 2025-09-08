@@ -65,7 +65,22 @@ export async function findBooksByAuthor(
     openLibrarySearchByAuthor(author, { max: 50, lang })
   ]);
   const list: Candidate[] = [];
-  if (ga.status === "fulfilled") list.push(...(ga.value.items ?? []));
+  if (ga.status === "fulfilled") {
+    const gbooks = ga.value.items ?? [];
+    const candidates = gbooks.map(gb => ({
+      title: gb.title,
+      author: gb.authors[0] ?? "",
+      year: gb.publishedYear?.toString(),
+      isbn10: undefined,
+      isbn13: gb.meta.isbn,
+      hasDescription: Boolean(gb.categories?.length),
+      hasThumb: Boolean(gb.thumbnail),
+      rating: gb.averageRating,
+      ratingVotes: gb.ratingsCount,
+      source: "gbooks" as const
+    }));
+    list.push(...candidates);
+  }
   if (ob.status === "fulfilled") list.push(...ob.value);
 
   const merged = new Map<string, Candidate>();

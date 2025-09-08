@@ -1,10 +1,11 @@
 import type { ButtonInteraction, ChatInputCommandInteraction } from "discord.js";
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from "discord.js";
-import { BookMenuData, buildSmartTitleQuery, userHasBook, warnIfLengthMismatch } from "../integrations/hardcover/service";
+import { BookMenuData, buildSmartTitleQuery, getUserBookStatus, warnIfLengthMismatch } from "../integrations/hardcover/service";
+import { requestDownload } from "../services/downloads";
 
 type ShowOpts = {
   onConfirmDownload: (ctx: { book: BookMenuData; smartQuery: string }) => Promise<void>;
-  torrentSeconds?: number | null; // pass runtime from indexer result if you have it
+  torrentSeconds?: number | null;
 };
 
 export async function showBookMenu(
@@ -13,13 +14,17 @@ export async function showBookMenu(
   opts: ShowOpts
 ) {
   const smart = buildSmartTitleQuery(book.title, book.series, book.seriesNumber);
-  const dup = await userHasBook(book.id);
-  const warn = warnIfLengthMismatch(undefined, opts.torrentSeconds ?? null); // pass edition length if available
+  const bookStatus = await getUserBookStatus(book.id);
+  const warn = warnIfLengthMismatch(undefined, opts.torrentSeconds ?? null);
+
+  const statusText = bookStatus?.hasBook 
+    ? `\n📚 In your library${bookStatus.status ? ` (${bookStatus.status})` : ''}`
+    : '';
 
   const embed = new EmbedBuilder()
     .setTitle(book.title)
     .setDescription([book.synopsis || "No synopsis available."]
-      .concat(dup ? ["\nAlready in your library."] : [])
+      .concat(statusText ? [statusText] : [])
       .concat(warn ? [`\n${warn}`] : [])
       .join(""))
     .setThumbnail(book.coverUrl || null)
@@ -41,10 +46,16 @@ export async function showBookMenu(
   collector.on("collect", async (btn) => {
     await btn.deferUpdate();
     if (btn.customId === "bookmenu_dl") {
-      await opts.onConfirmDownload({ book, smartQuery: smart });
-      await btn.followUp({ content: "Thanks. Returning to main.", ephemeral: true });
+      // Wire to existing download system
+      await requestDownload({
+        title: smart, // Use the smart query instead of raw title
+        author: book.authors?.join(", "),
+        userId: interaction.user.id,
+        channelId: interaction.channel?.id,
+      });
+      await btn.followUp({ content: "✅ Added. Thanks! Returning to main.", ephemeral: true });
     } else {
-      await btn.followUp({ content: "Thanks. Returning to main.", ephemeral: true });
+      await btn.followUp({ content: "👍 No problem. Returning to main.", ephemeral: true });
     }
     collector.stop("done");
   });

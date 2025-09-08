@@ -1,5 +1,5 @@
 import { gql, upcase } from "./client";
-import { ME, SEARCH_BOOKS, FALLBACK_BOOKS_BY_TEXT, BOOK_FOR_MENU, BOOKS_BY_AUTHOR, EDITION_BY_ISBN, USER_HAS_BOOK } from "./queries";
+import { ME, SEARCH_BOOKS, FALLBACK_BOOKS_BY_TEXT, BOOK_FOR_MENU, BOOKS_BY_AUTHOR, EDITION_BY_ISBN, USER_HAS_BOOK, SEARCH_AUTHORS, USER_BOOKS_WITH_STATUS } from "./queries";
 
 export type BookMenuData = {
   id: number | string;
@@ -15,16 +15,8 @@ export type BookMenuData = {
   isbns?: string[] | null;
 };
 
-export type SearchItem = {
-  id: number | string;
-  title: string;
-  authors: string[];
-  coverUrl?: string | null;
-  series?: string | null;
-  seriesNumber?: string | number | null;
-};
+export type SearchItem = { id: number | string; title: string; authors: string[]; coverUrl?: string | null; series?: string | null; seriesNumber?: string | number | null; };
 
-// ---- basics ----
 export async function hcPing() {
   return (await gql<{ me: { id: string; username: string; name?: string | null } }>(ME)).me;
 }
@@ -36,16 +28,32 @@ export function buildSmartTitleQuery(title: string, series?: string | null, seri
   return t;
 }
 
-// ---- search ----
 export async function searchBooksDescriptionFirst(q: string, limit = 5, offset = 0) {
   try {
-    const data = await gql<{ search: { score: number; book: any }[] }>(SEARCH_BOOKS, { q, limit, offset });
-    const items: SearchItem[] = data.search.map(s => s.book).filter(Boolean).map((b: any) => ({
-      id: b.id, title: b.title, authors: b.author_names || [], coverUrl: b.image?.url ?? null,
-      series: b.series_names?.[0] ?? null, seriesNumber: b.series_sequence ?? null,
+    // Convert offset to page number (Hardcover uses page-based pagination)
+    const page = Math.floor(offset / limit) + 1;
+    const data = await gql<{ search: { results: any[]; page: number; per_page: number } }>(SEARCH_BOOKS, { 
+      q, 
+      per_page: limit, 
+      page 
+    });
+    
+    const results = data.search.results || [];
+    const items: SearchItem[] = results.map((result: any) => ({
+      id: result.id,
+      title: result.title,
+      authors: result.author_names || [],
+      coverUrl: result.image?.url ?? null,
+      series: result.series_names?.[0] ?? null,
+      seriesNumber: result.series_sequence ?? null,
     }));
-    return { items, nextOffset: items.length < limit ? undefined : offset + limit };
-  } catch {
+    
+    // Calculate next offset for pagination consistency
+    const nextOffset = items.length < limit ? undefined : offset + limit;
+    return { items, nextOffset };
+  } catch (error: any) {
+    // Fallback to direct book query if search API fails
+    console.log("[searchBooksDescriptionFirst] Search API failed, using fallback:", error?.message);
     const patterns = tokenize(q);
     const data = await gql<{ books: any[] }>(FALLBACK_BOOKS_BY_TEXT, { patterns, limit, offset });
     const items: SearchItem[] = data.books.map((b: any) => ({
@@ -65,8 +73,7 @@ export async function listBooksByAuthor(author: string, limit = 5, offset = 0) {
   return { items, nextOffset: items.length < limit ? undefined : offset + limit };
 }
 
-// ---- details ----
-export async function bookMenuFromBookId(bookId: number | string): Promise<BookMenuData> {
+export async function bookMenuFromBookId(bookId: number | string) {
   const b = (await gql<{ books_by_pk: any }>(BOOK_FOR_MENU, { id: Number(bookId) })).books_by_pk;
   return {
     id: b.id,
@@ -83,7 +90,6 @@ export async function bookMenuFromBookId(bookId: number | string): Promise<BookM
   };
 }
 
-// ---- edition preflight (length/publisher/etc.) ----
 export async function editionPreflightByIsbn(isbn: string) {
   const clean = isbn.replace(/[^0-9Xx]/g, "");
   const v = { isbn10: clean.length === 10 ? clean : undefined, isbn13: clean.length === 13 ? clean : undefined };
@@ -117,7 +123,6 @@ export function warnIfLengthMismatch(editionSeconds?: number | null, torrentSeco
   return pct >= 0.2 ? `Heads up: audiobook length differs by ~${Math.round(pct * 100)}% (possible abridged).` : undefined;
 }
 
-// ---- dup check (optional) ----
 export async function userHasBook(bookId: number | string): Promise<boolean> {
   const uid = process.env.HARDCOVER_USER_ID;
   if (!uid) return false;
@@ -125,7 +130,56 @@ export async function userHasBook(bookId: number | string): Promise<boolean> {
   return (out.user_books?.length ?? 0) > 0;
 }
 
-// ---- helpers ----
+export async function getUserBookStatus(bookId: number | string): Promise<{ hasBook: boolean; status?: string } | null> {
+  const uid = process.env.HARDCOVER_USER_ID;
+  if (!uid) return null;
+  
+  try {
+    const out = await gql<{ user_books: { status_id: number }[] }>(USER_HAS_BOOK, { userId: Number(uid), bookId: Number(bookId) });
+    if (!out.user_books?.length) return { hasBook: false };
+    
+    const statusId = out.user_books[0].status_id;
+    const statusMap: Record<number, string> = {
+      1: "Want to Read",
+      2: "Currently Reading", 
+      3: "Read",
+      4: "Did Not Finish"
+    };
+    
+    return { hasBook: true, status: statusMap[statusId] || `Status ${statusId}` };
+  } catch (error: any) {
+    console.log("[getUserBookStatus] Failed to check book status:", error?.message);
+    return null;
+  }
+}
+
+export async function searchAuthors(q: string, limit = 5, offset = 0) {
+  try {
+    const page = Math.floor(offset / limit) + 1;
+    const data = await gql<{ search: { results: any[] } }>(SEARCH_AUTHORS, { 
+      q, 
+      per_page: limit, 
+      page 
+    });
+    
+    const results = data.search.results || [];
+    const items = results.map((result: any) => ({
+      id: result.id || result.slug,
+      name: result.name,
+      alternateNames: result.alternate_names || [],
+      booksCount: result.books_count || 0,
+      topBooks: result.books || [],
+      imageUrl: result.image?.url ?? null,
+    }));
+    
+    const nextOffset = items.length < limit ? undefined : offset + limit;
+    return { items, nextOffset };
+  } catch (error: any) {
+    console.log("[searchAuthors] Author search failed:", error?.message);
+    return { items: [], nextOffset: undefined };
+  }
+}
+
 function tokenize(q: string) {
   return Array.from(new Set(q.split(/[\s,.;:!?()"'`]+/g).map(s => s.trim()).filter(Boolean).filter(s => s.length >= 3)))
     .map(s => `%${s}%`);

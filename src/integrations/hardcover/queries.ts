@@ -1,13 +1,12 @@
 export const ME = /* GraphQL */ `query { me { id username name } }`;
 
 export const SEARCH_BOOKS = /* GraphQL */ `
-  query SearchBooks($q: String!, $limit: Int!, $offset: Int!) {
-    search(query: $q, query_type: book, limit: $limit, offset: $offset) {
-      score
-      book {
-        id title author_names series_names series_sequence release_year
-        has_audiobook has_ebook isbns image { url }
-      }
+  query SearchBooks($q: String!, $per_page: Int!, $page: Int!) {
+    search(query: $q, query_type: "book", per_page: $per_page, page: $page) {
+      results
+      query
+      per_page
+      page
     }
   }
 `;
@@ -73,6 +72,52 @@ export const USER_HAS_BOOK = /* GraphQL */ `
   query UserHasBook($userId: bigint!, $bookId: bigint!) {
     user_books(where: { user_id: { _eq: $userId }, book_id: { _eq: $bookId } }, limit: 1) {
       id status_id
+    }
+  }
+`;
+
+export const SEARCH_AUTHORS = /* GraphQL */ `
+  query SearchAuthors($q: String!, $per_page: Int!, $page: Int!) {
+    search(query: $q, query_type: "author", per_page: $per_page, page: $page) {
+      results
+      query
+      per_page
+      page
+    }
+  }
+`;
+
+export const USER_BOOKS_WITH_STATUS = /* GraphQL */ `
+  query UserBooksWithStatus($userId: bigint!, $statusId: Int!, $limit: Int!) {
+    user_books(
+      where: { user_id: { _eq: $userId }, status_id: { _eq: $statusId } }
+      limit: $limit
+    ) {
+      book {
+        id
+        title
+        author_names
+        image { url }
+        series_names
+        series_sequence
+      }
+    }
+  }
+`;
+
+export const USER_LIBRARY_SUMMARY = /* GraphQL */ `
+  query UserLibrarySummary($userId: bigint!) {
+    user_books(
+      where: { user_id: { _eq: $userId } }
+      distinct_on: book_id
+      limit: 1000
+    ) {
+      book {
+        id
+        title
+        author_names
+      }
+      status_id
     }
   }
 `;

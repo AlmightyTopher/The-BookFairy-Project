@@ -14,7 +14,7 @@ export async function requestDownload(req: DownloadRequest): Promise<void> {
   try {
     // Try to find and call existing downloader
     try {
-      const { AudiobookOrchestrator } = await import('../orchestrator/audiobook-orchestrator');
+      const { AudiobookOrchestrator } = await import('../orchestrator/audiobook-orchestrator.js');
       const orchestrator = new AudiobookOrchestrator();
       
       await orchestrator.downloadBook(

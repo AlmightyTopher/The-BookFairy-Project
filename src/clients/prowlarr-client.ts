@@ -103,7 +103,7 @@ export async function searchProwlarr(query: string, options: Partial<SearchOptio
     data = resp.data;
     console.log('Raw Prowlarr response:', JSON.stringify(data, null, 2));
   } catch (err) {
-    console.error('[Prowlarr] Search error:', err && (err.stack || err.message || err));
+    console.error('[Prowlarr] Search error:', err && ((err as any).stack || (err as any).message || err));
     throw err;
   }
 

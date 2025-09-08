@@ -13,6 +13,7 @@ import { searchGoogleBooks } from "../../integrations/googlebooks/client";
 import { requestDownload } from "../../services/downloads";
 import { showMainMenu } from "../ui/mainMenu";
 import { buttonStore } from "../../state/buttonStore";
+import { handleTitleSelectionToBookMenu } from "../../features/titleSelectionHook";
 
 // Helpers
 const truncate = (s: string, n: number) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -46,6 +47,11 @@ async function handleView(interaction: ButtonInteraction, id: string) {
   }
 
   console.log("[bookDetails] fetching details for:", meta.title, "by", meta.author);
+
+  // Try Hardcover → Book Menu first; if no HC match, continue with existing flow.
+  await handleTitleSelectionToBookMenu(interaction, { title: meta.title ?? "", author: meta.author ?? null });
+  // If Book Menu replied, return early.
+  if (interaction.replied || interaction.deferred) { return; }
 
   // Pass 1: exact
   let details = await getBookDetails(meta).catch((e) => {
