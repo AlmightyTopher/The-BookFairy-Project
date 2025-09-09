@@ -139,6 +139,10 @@ function createMainScreen(): { embeds: EmbedBuilder[], components: ActionRowBuil
         .setLabel('New Chat')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
+        .setCustomId('bf_flow_help')
+        .setLabel('🆘 Help')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
         .setCustomId('bf_flow_other')
         .setLabel('Other Commands')
         .setStyle(ButtonStyle.Secondary)
@@ -222,6 +226,10 @@ function createMoreOptionsScreen(): { embeds: EmbedBuilder[], components: Action
         .setCustomId('bf_flow_main')
         .setLabel('New Chat')
         .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('bf_flow_help')
+        .setLabel('🆘 Help')
+        .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId('bf_flow_other')
         .setLabel('Other Commands')
@@ -636,21 +644,13 @@ function createGenreResultsScreen(
 
 async function handleSlashCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   try {
-    if (interaction.commandName === 'genres') {
-      const screen = await createGenreSelectionScreen();
-      await interaction.reply({
-        embeds: screen.embeds,
-        components: screen.components,
-        ephemeral: !interaction.channel?.isDMBased()
-      });
-    } else {
-      const screen = createMainScreen();
-      await interaction.reply({
-        embeds: screen.embeds,
-        components: screen.components,
-        ephemeral: !interaction.channel?.isDMBased()
-      });
-    }
+    // Single entry point - all commands go to main screen
+    const screen = createMainScreen();
+    await interaction.reply({
+      embeds: screen.embeds,
+      components: screen.components,
+      ephemeral: !interaction.channel?.isDMBased()
+    });
   } catch (error) {
     logger.error({ error }, 'Failed to handle slash command');
   }
@@ -1267,21 +1267,19 @@ async function handleMessage(message: Message, client: Client): Promise<boolean>
   
   // Very short messages are probably greetings or unclear
   if (isGreeting || content.length < 4) {
-    if (!flowEngine) {
-      logger.error('Flow engine not initialized in quick actions');
-      return false;
-    }
-    
-    // Navigate to main menu
-    flowEngine.navigateTo(userId, 'Main');
-    const rendered = flowEngine.renderRoute(userId);
+    // Show main screen for greetings
+    const screen = createMainScreen();
     
     await message.reply({
-      embeds: rendered.embeds || [],
-      components: rendered.components || []
+      embeds: screen.embeds || [],
+      components: screen.components || []
     });
     return true;
   }
+
+  // Get session for this user/channel
+  const channelId = message.channel.id;
+  const session = getSession(channelId, userId);
 
   // User typed without expecting and it's not a custom search - send nudge
   session.nudges++;
@@ -1370,7 +1368,7 @@ export function installQuickActions(client: Client): void {
       if (interaction.type === InteractionType.ApplicationCommand) {
         const chatInputInteraction = interaction as ChatInputCommandInteraction;
         logger.info({ commandName: chatInputInteraction.commandName }, 'Received slash command');
-        if (chatInputInteraction.commandName === 'menu' || chatInputInteraction.commandName === 'genres') {
+        if (chatInputInteraction.commandName === 'bookfairy') {
           await handleSlashCommand(chatInputInteraction);
         }
       } else if (interaction.type === InteractionType.MessageComponent) {

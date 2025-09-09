@@ -19,12 +19,8 @@ if (!DISCORD_CLIENT_ID) {
 
 const commands = [
   new SlashCommandBuilder()
-    .setName('menu')
-    .setDescription('Open the Book Fairy quick actions menu')
-    .setDMPermission(true),
-  new SlashCommandBuilder()
-    .setName('genres')
-    .setDescription('Browse audiobooks by genre and timeframe')
+    .setName('bookfairy')
+    .setDescription('BookFairy main interface - search and discover audiobooks')
     .setDMPermission(true)
 ];
 
