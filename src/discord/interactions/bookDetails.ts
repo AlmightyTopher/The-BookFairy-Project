@@ -8,7 +8,7 @@ import {
   EmbedBuilder,
   Interaction,
 } from "discord.js";
-import { getBookDetails, getBookCoverUrl, type BookMeta } from "../../integrations/hardcover/client";
+import { book_details, getBookCoverUrl, type BookMeta } from "../../integrations/hardcover/client";
 import { searchGoogleBooks } from "../../integrations/googlebooks/client";
 import { requestDownload } from "../../services/downloads";
 import { showMainMenu } from "../ui/mainMenu";
@@ -47,20 +47,37 @@ async function handleView(interaction: ButtonInteraction, id: string) {
 
   console.log("[bookDetails] fetching details for:", meta.title, "by", meta.author);
 
-  // Pass 1: exact
-  let details = await getBookDetails(meta).catch((e) => {
-    console.log("[bookDetails] Hardcover pass1 error:", e?.message ?? e);
-    return null;
-  });
+  let details = null;
 
-  // Pass 2: stripped subtitle (e.g., drop text after colon/paren/brackets)
-  if (!details) {
-    const bare = { ...meta, title: stripSubtitle(meta.title ?? "") };
-    console.log("[bookDetails] pass2 with title:", bare.title);
-    details = await getBookDetails(bare).catch((e) => {
-      console.log("[bookDetails] Hardcover pass2 error:", e?.message ?? e);
+  // If meta has an hcId (book ID), use the new contract
+  if (meta.hcId) {
+    console.log("[bookDetails] using new contract with book ID:", meta.hcId);
+    details = await book_details(meta.hcId).catch((e) => {
+      console.log("[bookDetails] New contract error:", e?.message ?? e);
       return null;
     });
+  }
+
+  // Fall back to legacy approach if no ID or new contract failed
+  if (!details) {
+    console.log("[bookDetails] falling back to legacy approach");
+    const { getBookDetails } = await import("../../integrations/hardcover/client");
+    
+    // Pass 1: exact
+    details = await getBookDetails(meta).catch((e) => {
+      console.log("[bookDetails] Hardcover pass1 error:", e?.message ?? e);
+      return null;
+    });
+
+    // Pass 2: stripped subtitle (e.g., drop text after colon/paren/brackets)
+    if (!details) {
+      const bare = { ...meta, title: stripSubtitle(meta.title ?? "") };
+      console.log("[bookDetails] pass2 with title:", bare.title);
+      details = await getBookDetails(bare).catch((e) => {
+        console.log("[bookDetails] Hardcover pass2 error:", e?.message ?? e);
+        return null;
+      });
+    }
   }
 
   const title = details?.title ?? meta.title ?? "Selected Book";

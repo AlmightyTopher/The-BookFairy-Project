@@ -6,6 +6,8 @@
      HARDCOVER_GRAPHQL_URL=https://api.hardcover.app/v1/graphql
 */
 
+import { logger } from '../../utils/logger.js';
+
 // Warning for missing token
 if (!process.env.HARDCOVER_API_TOKEN) {
   console.warn("WARN: HARDCOVER_API_TOKEN is not set");
@@ -275,6 +277,242 @@ export async function searchByTitle(title: string) {
     return { books };
   } catch {
     return { books: [] };
+  }
+}
+
+// NEW SPEC CONTRACT IMPLEMENTATIONS (A1.1)
+
+/** New Spec: Search books with pagination */
+export async function search_books(query: string, page: number = 1, per_page: number = 5): Promise<BasicBook[]> {
+  if (!HC_TOKEN) return [];
+  try {
+    const graphqlQuery = /* GraphQL */ `
+      query ($q: String!, $page: Int!, $per: Int!) {
+        search(query: $q, query_type: "Book", page: $page, per_page: $per) {
+          results { 
+            id 
+            title 
+            authors { name }
+            publication_year
+            series { name }
+            default_cover_edition { image { url } }
+            editions(limit: 1, order_by: {release_date: desc}) { isbn_13 }
+          }
+        }
+      }
+    `;
+    
+    const data = await gql<{ search: { results?: Array<{ 
+      id: number; 
+      title: string; 
+      authors?: Array<{ name: string }>;
+      publication_year?: number;
+      series?: Array<{ name: string }>;
+      default_cover_edition?: { image?: { url?: string } };
+      editions?: Array<{ isbn_13?: string }>;
+    }> } }>(graphqlQuery, { q: query, page, per: per_page });
+    
+    return (data?.search?.results ?? []).map(book => ({
+      id: book.id.toString(),
+      title: book.title,
+      authors: (book.authors ?? []).map(a => a.name).filter(Boolean),
+      year: book.publication_year,
+      series: book.series?.[0]?.name,
+      hasAudiobook: false, // Hardcover doesn't reliably distinguish audiobooks in search
+      coverUrl: book.default_cover_edition?.image?.url,
+      isbn: book.editions?.[0]?.isbn_13
+    }));
+    
+  } catch (error) {
+    logger.error({ error, query, page, per_page }, 'Hardcover search_books failed');
+    return [];
+  }
+}
+
+/** New Spec: Search authors with pagination */
+export async function search_authors(query: string, page: number = 1, per_page: number = 5): Promise<Array<{name: string, slug: string}>> {
+  if (!HC_TOKEN) return [];
+  try {
+    const graphqlQuery = /* GraphQL */ `
+      query ($q: String!, $page: Int!, $per: Int!) {
+        search(query: $q, query_type: "Author", page: $page, per_page: $per) {
+          results { 
+            id
+            name
+            slug
+          }
+        }
+      }
+    `;
+    
+    const data = await gql<{ search: { results?: Array<{ 
+      id: number; 
+      name: string;
+      slug?: string;
+    }> } }>(graphqlQuery, { q: query, page, per: per_page });
+    
+    return (data?.search?.results ?? []).map(author => ({
+      name: author.name,
+      slug: author.slug || author.name.toLowerCase().replace(/\s+/g, '-')
+    }));
+    
+  } catch (error) {
+    logger.error({ error, query, page, per_page }, 'Hardcover search_authors failed');
+    return [];
+  }
+}
+
+/** New Spec: Get books by author slug */
+export async function books_by_author_slug(slug: string, page: number = 1, per_page: number = 5): Promise<BasicBook[]> {
+  if (!HC_TOKEN) return [];
+  try {
+    // First find the author by slug, then get their books
+    const authorQuery = /* GraphQL */ `
+      query ($slug: String!) {
+        authors(where: { slug: { _eq: $slug } }, limit: 1) {
+          id
+          name
+        }
+      }
+    `;
+    
+    const authorData = await gql<{ authors: Array<{ id: number; name: string }> }>(authorQuery, { slug });
+    const author = authorData.authors?.[0];
+    
+    if (!author) {
+      logger.debug({ slug }, 'Author not found for slug');
+      return [];
+    }
+    
+    // Now get books by this author
+    const booksQuery = /* GraphQL */ `
+      query ($authorId: Int!, $limit: Int!, $offset: Int!) {
+        books(
+          where: { 
+            book_contributions: { 
+              contribution_type: { name: { _eq: "Author" } }
+              person: { id: { _eq: $authorId } }
+            }
+          }
+          limit: $limit
+          offset: $offset
+          order_by: { publication_year: desc_nulls_last }
+        ) {
+          id
+          title
+          publication_year
+          series: book_series(limit: 1) { 
+            position 
+            series { name } 
+          }
+          default_cover_edition { image { url } }
+          editions(limit: 1, order_by: {release_date: desc}) { isbn_13 }
+        }
+      }
+    `;
+    
+    const offset = (page - 1) * per_page;
+    const booksData = await gql<{ books: Array<{
+      id: number;
+      title: string;
+      publication_year?: number;
+      series?: Array<{ position?: number; series?: { name?: string } }>;
+      default_cover_edition?: { image?: { url?: string } };
+      editions?: Array<{ isbn_13?: string }>;
+    }> }>(booksQuery, { authorId: author.id, limit: per_page, offset });
+    
+    return (booksData.books ?? []).map(book => ({
+      id: book.id.toString(),
+      title: book.title,
+      authors: [author.name],
+      year: book.publication_year,
+      series: book.series?.[0]?.series?.name,
+      seriesNumber: book.series?.[0]?.position,
+      hasAudiobook: false,
+      coverUrl: book.default_cover_edition?.image?.url,
+      isbn: book.editions?.[0]?.isbn_13
+    }));
+    
+  } catch (error) {
+    logger.error({ error, slug, page, per_page }, 'Hardcover books_by_author_slug failed');
+    return [];
+  }
+}
+
+/** New Spec: Get book details with narrators */
+export async function book_details(book_id: string): Promise<BookDetails & { narrators?: string[] } | null> {
+  if (!HC_TOKEN) return null;
+  try {
+    const bookIdNum = parseInt(book_id, 10);
+    if (isNaN(bookIdNum)) {
+      logger.warn({ book_id }, 'Invalid book ID for book_details');
+      return null;
+    }
+    
+    const query = /* GraphQL */ `
+      query ($id: Int!) {
+        books(where: { id: { _eq: $id } }, limit: 1) {
+          id
+          title
+          description
+          publication_year
+          author_names
+          default_cover_edition { image { url } }
+          book_series { position series { name } }
+          editions(limit: 1, order_by: {release_date: desc}) { isbn_13 }
+          book_contributions(
+            where: { contribution_type: { name: { _in: ["Narrator", "Reader"] } } }
+            limit: 10
+          ) {
+            person { name }
+            contribution_type { name }
+          }
+        }
+      }
+    `;
+    
+    const data = await gql<{
+      books: Array<{
+        id: number;
+        title: string;
+        description?: string;
+        publication_year?: number;
+        author_names?: string[];
+        default_cover_edition?: { image?: { url?: string } };
+        book_series?: Array<{ position?: number; series?: { name?: string } }>;
+        editions?: Array<{ isbn_13?: string }>;
+        book_contributions?: Array<{
+          person?: { name?: string };
+          contribution_type?: { name?: string };
+        }>;
+      }>
+    }>(query, { id: bookIdNum });
+    
+    const book = data.books?.[0];
+    if (!book) return null;
+    
+    const seriesNode = book.book_series?.find(Boolean);
+    const narrators = (book.book_contributions ?? [])
+      .filter(contrib => contrib.person?.name && 
+        (contrib.contribution_type?.name === 'Narrator' || contrib.contribution_type?.name === 'Reader'))
+      .map(contrib => contrib.person!.name!)
+      .filter((name, index, arr) => arr.indexOf(name) === index); // Dedupe
+    
+    return {
+      title: book.title,
+      authors: (book.author_names ?? []).filter(Boolean) as string[],
+      seriesName: seriesNode?.series?.name,
+      seriesNumber: seriesNode?.position,
+      description: book.description,
+      imageUrl: book.default_cover_edition?.image?.url || null,
+      isbn13: book.editions?.[0]?.isbn_13 || null,
+      hcId: book.id,
+      narrators: narrators.length > 0 ? narrators : undefined
+    };
+    
+  } catch (error) {
+    logger.error({ error, book_id }, 'Hardcover book_details failed');
+    return null;
   }
 }
 

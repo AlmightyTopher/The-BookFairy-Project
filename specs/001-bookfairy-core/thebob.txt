@@ -1,208 +1,78 @@
+Refactor/cleanup request for BookFairy:
 
-# Spec-Kit the new Build Sheet
+Goal: Identify and safely remove dead files, legacy menu flows, and unused code while enforcing the current spec and constitutional rules. Maintain all existing user-facing functionality.
 
-## Phase 0, Preconditions
+What to do:
 
-**Task P0.1, Env check, Priority P0**
+Inventory + Reachability
 
-* Do: Verify these variables exist and are nonempty: HARDCOVER\_API\_TOKEN, PROWLARR\_URL, PROWLARR\_API\_KEY. Optional: PROWLARR\_INDEXER\_IDS, MAM\_INDEXER\_ID.
-* Verify: Test HTTPS GET to Hardcover GraphQL endpoint, POST echo, Prowlarr `/api/v1/search` with dummy query. All return 200 or expected error text.
-* Fail action: If any missing, stop and emit a blocking checklist.
+Build a map of commands, handlers, flows, and utilities actually referenced at runtime.
 
-**Task P0.2, English-only policy, Priority P1**
+Detect unreachable files, unused exports, legacy slash/menus not reachable from the single /bookfairy entrypoint, and orphaned tests/docs.
 
-* Do: Set a global “english\_only = true”.
-* Verify: Any Open Library search returns docs where language includes `eng`. If adapter cannot filter, spec-kit adds a post-filter.
-* Fail action: Warn, still proceed.
+Flag anything that violates the spec’s constitutional rules: single entrypoint, no DM delivery, relay-only via Prowlarr/Readarr/qBittorrent, 5-item pagination.
 
----
+Propose diffs
 
-## Phase 1, Data Adapters, interface contracts
+Prepare a short list of candidate removals/refactors grouped by risk:
+A) Safe deletes (truly dead)
+B) Safe rewires (rename/move/update imports)
+C) Risky (behavior-adjacent; needs extra tests)
 
-**Task A1.1, Hardcover adapter, Priority P0**
+For each candidate, include: file(s), why it’s safe (no refs / superseded), and what tests cover the surviving path.
 
-* Contract:
+Apply minimal changes
 
-  * `search_books(query, page, per_page) -> [BasicBook]`
-  * `search_authors(query, page, per_page) -> [{name, slug}]`
-  * `books_by_author_slug(slug, page, per_page) -> [BasicBook]`
-  * `book_details(book_id) -> BookDetails` with `narrators[]`
-* Do: Ensure Authorization uses Bearer token, timeouts 15s, friendly error strings.
-* Verify: Each method returns required fields: id, title, authors\[], optional series, seriesNumber, hasAudiobook, coverUrl.
+Implement the A) Safe deletes and B) Safe rewires first. Keep changes surgical: no redesigns, no new features.
 
-**Task A1.2, Open Library adapter, Priority P1**
+Update imports, exports, and docs to remove dangling references. Do not change public behavior, command names, pagination size, or relay behavior.
 
-* Contract:
+Run checks
 
-  * `ol_search_loose(text, page) -> [BasicBook]` with English filter
-  * `ol_search_fielded({title?, author?, subject?, q?, page?}) -> [BasicBook]` with English filter
-* Do: Post-filter non-English, drop docs without author, dedupe by `title|firstAuthor`.
-* Verify: Sample fuzzy input returns at least 1 valid item or “0 results” cleanly.
+Run typecheck, lint, and the full test suite.
 
-**Task A1.3, Prowlarr adapter, Priority P0**
+If anything fails, automatically revert just the offending hunk and move it from A/B → C with a note why.
 
-* Contract:
+Single cleanup PR
 
-  * `indexer_search(query, limit, offset, indexerIds?) -> [Result]` with fields: title, indexerId, indexer, size, seeders, peers, publishDate, link.
-  * `available_on_mam(query) -> boolean`
-  * `pick_best_torrent(results) -> Result | null` using seeders first, then recency, then sane size.
-* Do: If MAM\_INDEXER\_ID is set, use it. Else, allow name match to “MyAnonamouse”.
-* Verify: Returns found/not found against a known query, and a best candidate is logged internally.
+Create one feature branch (e.g., cleanup/legacy-purge-YYYYMMDD).
 
-**Task A1.4, LibriVox supplement, Priority P3**
+Use small, logical commits (inventory → deletes → rewires → docs).
 
-* Contract: `librivox_by_reader(name, limit) -> [project]`. Optional, only enrich narrator names for PD.
-* Do: Mark as best effort, do not block flow.
-* Verify: Does not throw on failure.
+PR title: “Cleanup: remove dead files, legacy flows, and unused code (no behavior change)”.
 
----
+PR body:
 
-## Phase 2, Core State and Persistence
+What was removed/rewired and why (with file lists).
 
-**Task S2.1, Numeric button map, Priority P0**
+Proof of safety: links to tests, coverage or call-graph notes.
 
-* Contract: `set_page_map(userId, mode, page, [ids])`, `resolve_choice(userId, mode, page, n1to5) -> id`
-* Do: Store per user, per mode, per page. TTL 15 minutes.
-* Verify: Selecting “3” returns the same id even if upstream results reorder.
+Confirmation of constitutional compliance.
 
-**Task S2.2, Describe session persistence, Priority P0**
+Test/lint/typecheck results summary.
 
-* Contract: `start_describe(userId, q)`, `get_describe(userId)`, `update_describe(userId, patch)`, `end_describe(userId)`
-* Do: Persist with TTL default 12 hours. On next DM, offer one-time Resume or Discard.
-* Verify: Kill the bot, restart, resume prompt appears, session resumes.
+Constraints (do not violate):
 
-**Task S2.3, Wishlist persistence with commands, Priority P0**
+One Discord entrypoint with button routing only.
 
-* Contract: `wishlist_add(userId, bookId, title, authors[])`, `wishlist_list(userId, limit, offset)`, `wishlist_clear(userId)`
-* Do: Add to wishlist on not found. Provide `/wishlist list` and `/wishlist clear`.
-* Verify: Items round-trip and are isolated per user.
+No DM file delivery of any kind.
 
----
+Relay-only via Prowlarr/Readarr/qBittorrent.
 
-## Phase 3, Search Flows, black-box behavior
+5-item pagination everywhere.
 
-**Task F3.1, Title search, Priority P0**
+Do not move or change how secrets are stored.
 
-* Inputs: free text.
-* Steps: call `search_books`, show up to 5, number across pages, map numbers, open details on selection.
-* Verify: Page 1 shows 1..5, Page 2 shows 6..10. Back and Next work.
+Preserve repo structure and existing commands (npm run dev, npm test).
 
-**Task F3.2, Author search and author books, Priority P0**
+Outputs I expect:
 
-* Inputs: author name.
-* Steps: `search_authors`, pick author via number, then `books_by_author_slug`. Use same pagination rules.
-* Verify: Choosing an author lists that author’s books with year-sorted order.
+A brief “Inventory & Plan” section (the proposed A/B/C groups).
 
-**Task F3.3, Narrator search, Priority P1**
+The actual diffs applied for A and B.
 
-* Inputs: narrator name.
-* Steps: Try Hardcover contribution filter. If zero, fallback to general book search. PD enrichment via LibriVox optional.
-* Verify: Returns audiobook works for credited narrator when possible.
+Test + lint + typecheck results.
 
-**Task F3.4, Describe search with clarifier loop, Priority P1**
+A single ready-to-merge cleanup PR as described above.
 
-* Inputs: messy text.
-* Steps: OL loose + fielded, dedupe, optional HC enrich top N, rank with title fuzz 60 percent, author fuzz 30 percent, series/audio boosts. On “Not it”, ask one clarifier, apply, re-rank, re-show.
-* Verify: After one clarifier, a different top-5 appears that reflects the constraint.
-
----
-
-## Phase 4, Book Details and Download
-
-**Task D4.1, Details view, Priority P0**
-
-* Must show: cover, title, authors, optional series and number, narrators up to 10 with “view more”. Narrators are clickable to run narrator search.
-* Verify: Missing data does not crash, just omits the field.
-
-**Task D4.2, Download decision, Priority P0**
-
-* Steps: On Download, run `available_on_mam(query)`. If true, respond “Found on MAM, starting request”. If false, “Not found, added to your wishlist”.
-* Verify: Found/not found matches Prowlarr reality on test queries. If found, `pick_best_torrent` identifies a best candidate internally.
-
----
-
-## Phase 5, Controls and Pagination, universal
-
-**Task U5.1, Controls, Priority P0**
-
-* Buttons must exist everywhere they are supposed to: 1..5 for lists, Next, Back, New Search. Describe adds Not it, Refine, Yes, No, Skip.
-* Verify: Navigation never dead-ends, New Search always returns to main.
-
-**Task U5.2, Numbering, Priority P0**
-
-* Rule: numbers are global across pages, not per page.
-* Verify: Item labeled “7” always means the seventh item of the whole result set, not “2 on page 2”.
-
----
-
-## Phase 6, Observability and Limits
-
-**Task O6.1, Structured logs, Priority P1**
-
-* Do: Log userId, mode, query, took\_ms, result\_count, cache\_hit, and adapter errors by source.
-* Verify: One log entry per action, secret redaction in place.
-
-**Task O6.2, Rate limiting and retry, Priority P1**
-
-* Do: Per-host limiter, 2 to 3 concurrent, 100 to 150 ms minTime. Retry 3 times with jitter for transient errors.
-* Verify: Spike test does not 429, failures back off and eventually surface a friendly message.
-
-**Task O6.3, Abuse guard, Priority P2**
-
-* Do: Per user rate limit, for example 20 actions per minute. Friendly cool-down message if exceeded.
-* Verify: Exceed limit and receive the guard message.
-
----
-
-## Phase 7, Validation and Health
-
-**Task V7.1, Input and response validation, Priority P1**
-
-* Do: Validate env at startup and fail fast. Validate mapped adapter outputs include at least id, title, authors\[].
-* Verify: Bad env prevents start with a clear message. Malformed external responses do not crash handlers.
-
-**Task V7.2, Health command, Priority P3**
-
-* Do: Expose `/health` or similar that runs a cheap Hardcover search, OL ping, and prints limiter and cache stats.
-* Verify: Returns “ok” or “fail: reason” per adapter.
-
----
-
-## Phase 8, Tests and CI
-
-**Task T8.1, Manual black-box script, Priority P1**
-
-* Do: Provide this checklist to an operator:
-
-  1. Title search “Mistborn”, open #1, view details, download.
-  2. Author search “Brandon Sanderson”, pick author, open a book, back, next, new search.
-  3. Narrator search “Scott Brick”, confirm audiobook titles appear.
-  4. Describe “blue desert sand magic thief”, hit Not it, answer one clarifier, confirm list changes.
-  5. Force not found, confirm wishlist added. Run `/wishlist list`, then `/wishlist clear`.
-* Verify: All steps complete without error text or dead ends.
-
-**Task T8.2, Automated tests, Priority P1**
-
-* Do: Add minimal tests to simulate zero results, adapter error, and one happy path per flow. You can use any test harness you already have.
-* Verify: Tests run green locally. CI gate is optional.
-
----
-
-## Phase 9, Docs
-
-**Task D9.1, Operator quickstart, Priority P3**
-
-* Do: One page that lists commands, controls, what each button does, and the found/not-found behavior.
-* Verify: A new person can run a search end-to-end in 10 minutes.
-
----
-
-## Acceptance Matrix, what “done” means
-
-* Title, Author, Narrator, Describe all return results, paginate, and open details.
-* Details always render, with narrators clickable.
-* Download returns boolean UX and logs the internal best pick.
-* Wishlist persists, list and clear work.
-* Describe sessions persist across restarts with TTL and one resume prompt.
-* Logs are structured, rate limits are enforced, retries exist, inputs validated.
-* Manual script passes end-to-end.
+Assume “yes” for obviously safe deletes/rewires; ask once if anything is ambiguous or looks risky.
