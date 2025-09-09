@@ -10,7 +10,12 @@ import {
 } from "discord.js";
 import { book_details, getBookCoverUrl, type BookMeta } from "../../integrations/hardcover/client";
 import { searchGoogleBooks } from "../../integrations/googlebooks/client";
-import { requestDownload } from "../../services/downloads";
+// Simple replacement for the removed download service
+async function requestDownload(params: { title: string; author?: string; userId: string; channelId?: string }) {
+  // Placeholder implementation - this would integrate with the actual download system
+  console.log(`[bookDetails] Download requested: ${params.title} by ${params.author} for user ${params.userId}`);
+  // In a real implementation, this would trigger the download through prowlarr/qbittorrent
+}
 import { showMainMenu } from "../ui/mainMenu";
 import { buttonStore } from "../../state/buttonStore";
 

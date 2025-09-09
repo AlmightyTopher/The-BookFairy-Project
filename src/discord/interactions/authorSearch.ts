@@ -1,8 +1,29 @@
 import { Client, Interaction, ButtonBuilder, ButtonStyle, ActionRowBuilder } from "discord.js";
 import { findBooksByAuthor, type SortKey, type BookMeta } from "../../search/author";
-import { vput, vget } from "../../state/viewStore";
-import { buildSortRow } from "../ui/sortMenu";
 import { bookSelectButton } from "../ui/bookButtons";
+
+// Simple replacements for removed utilities
+const viewStore = new Map<string, any>();
+function vput(key: string, value: any) { viewStore.set(key, value); }
+function vget(key: string) { return viewStore.get(key); }
+
+function buildSortRow(stateId: string, current: SortKey) {
+  // Simplified sort row - minimal implementation
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`BOOK_SORT:${stateId}:rating_desc`)
+      .setStyle(current === "rating_desc" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setLabel("★ Rating"),
+    new ButtonBuilder()
+      .setCustomId(`BOOK_SORT:${stateId}:year_desc`)
+      .setStyle(current === "year_desc" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setLabel("📅 Year"),
+    new ButtonBuilder()
+      .setCustomId(`BOOK_SORT:${stateId}:title`)
+      .setStyle(current === "title" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setLabel("📚 Title")
+  );
+}
 
 type AuthorState = {
   kind: "author";
