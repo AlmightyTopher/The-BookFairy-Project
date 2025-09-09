@@ -29,3 +29,6 @@ dist/
 # Temporary files
 *.tmp
 temp/
+
+# Local Claude settings
+.claude/settings.local.json
