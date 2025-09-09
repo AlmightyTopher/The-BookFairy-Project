@@ -72,6 +72,12 @@ export const config = {
     duplicateRequestWindow: parseInt(process.env.DUPLICATE_WINDOW || '300000'),
   },
 
+  // Feature Flags
+  features: {
+    mamFlow: process.env.FEATURE_MAM_FLOW === 'true',
+    hardcover: process.env.FEATURE_HARDCOVER !== 'false', // Default to true
+  },
+
   // Audiobookshelf Configuration
   audiobookshelf: {
     baseUrl: process.env.AUDIOBOOKSHELF_URL || 'http://localhost:13378',
