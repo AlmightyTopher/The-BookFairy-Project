@@ -1,0 +1,135 @@
+---
+title: Guida alla Documentazione API
+category: guide
+lastUpdated: 2025-04-27 13:28:00
+layout: /src/layouts/documentation.astro
+---
+import { FileTree } from '@astrojs/starlight/components';
+import { URLS } from "@/Consts";
+
+## FAQ per Sviluppatori
+
+### Come è strutturato il progetto?
+
+#### Struttura dei File
+
+Starlight cerca file `.md` o `.mdx` nella directory `src/content/docs/`.
+Ogni file viene esposto come route basata sul nome del file.
+
+Le immagini possono essere aggiunte a `src/assets/` e incorporate nel Markdown con un link relativo.
+
+Gli asset statici, come le favicon, possono essere posizionati nella directory `public/`.
+
+<FileTree>
+    - public favicon e altri asset statici
+        - ...
+    - src
+        - assets Immagini per le pagine di documentazione
+            - ...
+        - components Componenti custom
+            - GraphQLExplorer
+                - GraphQLExplorer.astro File principale del componente GraphQL Explorer
+                - ...
+            - ui componenti shadcn/ui
+                - ...
+            - ...
+        - content
+            - docs file mdx che generano pagine di documentazione
+                - api
+                    - GraphQL
+                        - Schema Schema dati
+                            - ...
+                    - ...
+                    - guides Guide e tutorial
+                        - ...
+                    - getting-started.mdx
+                    - ...
+                - contributing Linee guida per contribuire
+                    - ...
+                - it Traduzioni in italiano
+                    - ...
+                -  librarians Guide per bibliotecari
+                    - ...
+                - ui.json traduzioni per le stringhe UI
+        - layouts Layout per pagine di documentazione
+            - documentation.astro Layout principale per pagine di documentazione
+            - ...
+    - astro.config.mjs File di configurazione Astro
+    - components.json componenti shadcn/ui
+    - CONTRIBUTING Linee guida per contribuire
+    - DEVELOPERS.md FAQ per sviluppatori
+    - tailwind.config.mjs Configurazione Tailwind CSS
+    - ...
+</FileTree>
+
+
+### Come eseguo il progetto in locale?
+
+#### 🚀 Avvio Rapido
+
+1. **Clona il repo:**
+```bash
+git clone https://github.com/hardcoverapp/hardcover-docs.git
+```
+2. **Naviga nella directory del progetto:**
+```bash
+cd hardcover-docs
+```
+3. **Installa le dipendenze:**
+ ```bash
+ npm install
+  ```
+4. **Avvia il dev server:**
+ ```bash
+ npm run dev
+  ```
+5. **Apri il browser**
+6. **Vai a `http://localhost:4321`**
+
+#### 🧞 Comandi
+
+Il sito di documentazione di Hardcover è costruito con [Astro](https://astro.build/).
+Tutti i comandi vengono eseguiti dalla root del progetto, da un terminale:
+
+| Comando                              | Azione                                            |
+|:-------------------------------------|:--------------------------------------------------|
+| `npm install`                        | Installa le dipendenze                            |
+| `npm run dev`                        | Avvia il dev server locale su `localhost:4321` |
+| `npm run build`                      | Fai una build di produzione in `./dist/`   |
+| `npm run preview`                    | Vedi un'anteprima della build in locale, prima del deploy |
+| `npm run astro ...`                  | Esegui comandi CLI come `astro add`, `astro check` |
+| `npm run astro -- --help`            | Ottieni aiuto utilizzando la CLI di Astro         |
+| `npx vitest`                         | Esegui gli unit tests per il progetto             |
+| `npx vitest --coverage.enabled true` | Esegui gli unit test con coverage    |
+
+### Come aggiungo una nuova pagina o aggiorno una pagina esistente?
+
+#### Aggiungere una Nuova Pagina
+
+1. Crea un nuovo file `.mdx` nella directory `src/content/docs/`.
+2. Dai al file un nome che descriva il contenuto.
+3. Aggiungi il [frontmatter](#page-frontmatter) in cima al file.
+4. Aggiungi contenuto al file utilizzando la sintassi Markdown o MDX.
+5. Aggiungi la nuova pagina alla barra laterale
+ - Se la pagina fa parte delle sezioni `api/GraphQL/Schema` o `guides`, la barra laterale si aggiornerà automaticamente con la nuova pagina.
+ - Tutte le altre pagine dovranno essere aggiunte al file di configurazione astro
+vedi [Starlight - Aggiungi collegamenti e gruppi di collegamenti](https://starlight.astro.build/it/guides/sidebar/#aggiungi-collegamenti-e-gruppi-di-collegamenti)
+per maggiori informazioni.
+
+##### Page Frontmatter
+Spostato a [Frontmatter](../frontmatter)
+
+#### Componenti Disponibili
+Spostato a [Astro Components](../astro-components) per i componenti Astro e [React Components](../react-components) per i componenti React.
+
+### Tradurre Contenuto
+Spostato a to [Translating Documentation Guide](./doc-translations)
+
+## Risorse di Supporto
+
+### Inviare un Bug Report
+
+### Richiedere una Funzionalità
+
+### Trovare Aiuto su Discord
+Connettiti con noi su <a href={URLS.DISCORD} target="_blank" rel="noreferrer noopener">Discord</a>

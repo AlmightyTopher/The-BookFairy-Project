@@ -1,0 +1,81 @@
+---
+title: Guida alla Traduzione della Documentazione
+category: guide
+lastUpdated: 2025-04-27 16:59:00
+layout: /src/layouts/librarians.astro
+---
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+<Tabs>
+    <TabItem label="Aggiornare le Traduzioni per Pagine Esistenti" default>
+        Quando è già presente una traduzione per una pagina, puoi aggiornare la traduzione seguendo questi passaggi:
+
+        <Steps>
+            1. Vai alla pagina che desideri tradurre.
+
+            2. Utilizzando il menu delle lingue nella parte superiore della pagina, seleziona la lingua in cui desideri tradurre il documento.
+
+            3. Clicca sul pulsante "Modifica pagina" nella parte inferiore della pagina.
+
+            4. Traduci il contenuto nella lingua selezionata.
+
+            5. Dopo aver apportato le modifiche, clicca sul pulsante "Commit changes..." nella parte superiore della pagina.
+
+            6. Nella finestra modale che appare, aggiungi un titolo e una descrizione per descrivere le tue modifiche, quindi clicca sul pulsante "Propose changes".
+
+            7. Su Discord menziona `@Revelry` per rivedere le tue modifiche.
+
+        </Steps>
+    </TabItem>
+    <TabItem label="Aggiungere una Pagina a una Traduzione Esistente">
+        Durante la navigazione del sito della documentazione, potresti trovare una pagina che non è tradotta nella lingua che stai visualizzando.
+        In questo caso potresti vedere un banner nella parte superiore della pagina simile a quello qui sotto:
+
+        <img src="/images/Translation-Not-Found-IT.png" alt="Traduzione Non Trovata" />
+
+        Se vedi questo banner, dovrai creare una copia della pagina nella directory di traduzione per la lingua che stai visualizzando,
+        e poi seguire i passaggi descritti in `Aggiornare le Traduzioni per Pagine Esistenti`.
+
+        Una volta che una lingua è stata aggiunta al file di configurazione astro, puoi creare un nuovo file nella directory `src/content/docs/`
+        all'interno di una cartella denominata con il codice della lingua. Questo nuovo file deve avere lo stesso nome del file originale che stai traducendo.
+
+        Ad esempio, se stai traducendo il file `src/content/docs/getting-started.mdx` in spagnolo, creeresti un nuovo
+        file in `src/content/docs/es/getting-started.mdx` con la traduzione spagnola del contenuto.
+
+        Istruzioni più dettagliate al riguardo saranno aggiunte in futuro.
+
+    </TabItem>
+
+</Tabs>
+
+## Aggiungere nuove lingue al menu delle lingue
+
+Se desideri aggiungere una nuova lingua che non è attualmente disponibile nel menu delle lingue,
+puoi farlo seguendo questi passaggi:
+
+Per maggiori informazioni, vedi [Starlight - Configurare i18n](https://starlight.astro.build/it/guides/i18n/#configurare-i18n).
+
+### Note Importanti
+- La lingua principale **non** deve essere cambiata dall'inglese.
+- Quando aggiungi una nuova lingua, dovresti anche aggiornare i blocchi di traduzione esistenti nel file di configurazione astro per includere la nuova lingua.
+
+## Come fare riferimento agli elementi dell'interfaccia utente nelle traduzioni
+
+Poiché l'app Hardcover è attualmente disponibile solo in inglese,
+dovresti scrivere le pagine di documentazione con le etichette in inglese ma includere anche quale dovrebbe essere la traduzione.
+
+Ad esempio, se stai traducendo una pagina che fa riferimento a un pulsante con l'etichetta "Save",
+dovresti scrivere la pagina con il pulsante etichettato come "Save" e includere la traduzione nel contenuto della pagina come segue:
+
+```
+Click the <kbd>Save</kbd> button to save your changes.
+```
+
+Diventerebbe:
+
+```
+Clicca sul pulsante <kbd>Save</kbd> "Salva" per salvare le tue modifiche.
+```
+
+## Utilizzare le nuove traduzioni
+Vedi [Utilizzare le Traduzioni nelle Pagine della Documentazione](./using-translations) per maggiori informazioni su come utilizzare le nuove traduzioni nelle pagine di documentazione.
