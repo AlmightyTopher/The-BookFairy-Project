@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js';
+import { findBooksByAuthor } from '../search/author.js';
 
 interface TaskContext {
   userId: string;
@@ -37,7 +38,7 @@ export class TaskExecutor {
     // Define task requirements locally to avoid circular dependency
     const taskRequirements: Record<string, string[]> = {
       'fowler_search_title': ['MAM_USERNAME', 'MAM_PASSWORD'],
-      'fowler_search_author': ['MAM_USERNAME', 'MAM_PASSWORD'],
+      'fowler_search_author': [], // Enhanced author search works with multiple sources, MAM not required
       'fowler_search_description': ['MAM_USERNAME', 'MAM_PASSWORD'],
       'mam_fetch_genre': ['MAM_USERNAME', 'MAM_PASSWORD'],
       'fowler_fuzzy_match': ['MAM_USERNAME', 'MAM_PASSWORD'],
@@ -112,29 +113,56 @@ export class TaskExecutor {
   }
 
   private async fowlerSearchAuthor(context: TaskContext): Promise<TaskResult> {
-    logger.info({ query: context.query }, 'Executing fowler_search_author');
+    logger.info({ query: context.query }, 'Executing fowler_search_author with Hardcover integration');
     
-    // TODO: Implement actual Fowler/Prowlarr search
-    // For now, return mock data
-    const mockResults = [
-      {
-        title: 'Book 1',
-        author: context.query,
-        series: 'Series A',
-        rating: 4.7
-      },
-      {
-        title: 'Book 2',
-        author: context.query,
-        series: 'Series B', 
-        rating: 4.3
-      }
-    ];
+    if (!context.query) {
+      return { success: false, error: 'No author query provided' };
+    }
 
-    return {
-      success: true,
-      data: mockResults
-    };
+    try {
+      // Use the enhanced Hardcover-integrated author search
+      const results = await findBooksByAuthor(context.query);
+      
+      if (!results || results.length === 0) {
+        logger.info({ query: context.query }, 'No books found for author');
+        return {
+          success: true,
+          data: []
+        };
+      }
+
+      // Convert BookMeta format to expected task result format
+      const taskResults = results.map(book => ({
+        title: book.title,
+        author: book.author,
+        series: book.series || null,
+        rating: book.rating || null,
+        year: book.year || null,
+        isbn: book.isbn || null,
+        // Preserve original BookMeta for downstream processing
+        _originalBookMeta: book
+      }));
+
+      logger.info({ 
+        query: context.query, 
+        resultCount: taskResults.length 
+      }, 'Enhanced author search completed successfully');
+
+      return {
+        success: true,
+        data: taskResults
+      };
+    } catch (error) {
+      logger.error({ 
+        error: error instanceof Error ? error.message : String(error), 
+        query: context.query 
+      }, 'Enhanced author search failed');
+      
+      return { 
+        success: false, 
+        error: 'Author search failed' 
+      };
+    }
   }
 
   private async fowlerSearchDescription(context: TaskContext): Promise<TaskResult> {

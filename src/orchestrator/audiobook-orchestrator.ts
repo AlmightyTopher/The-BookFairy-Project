@@ -12,6 +12,7 @@ import { checkReadarrHealth } from '../clients/readarr-client';
 import { checkProwlarrHealth } from '../clients/prowlarr-client';
 import { checkQbittorrentHealth } from '../clients/qbittorrent-client';
 import { downloadMonitor } from '../services/download-monitor';
+import { findBooksByAuthor } from '../search/author';
 
 /**
  * Core orchestrator for audiobook discovery and download management.
@@ -311,14 +312,18 @@ export class AudiobookOrchestrator {
     try {
       logger.info({ request }, 'Searching for audiobook');
       
-      // Check if this is an author-only search
-      const isAuthorSearch = (!request.title || !request.title.trim()) && 
-                           request.author && request.author !== 'Unknown';
+      // Enhanced author detection logic - check multiple patterns
+      const isAuthorSearch = this.detectAuthorSearch(request);
       
       if (isAuthorSearch) {
-        // Handle author search with Goodreads links instead of torrent searching
-        logger.info({ author: request.author }, 'Processing author search via Goodreads');
-        return this.handleAuthorSearchWithGoodreads(request.author);
+        // Determine the author name from either the author field or title field
+        const authorName = request.author && request.author !== 'Unknown' 
+          ? request.author 
+          : request.title;
+        
+        // Handle author search with Hardcover ONLY as requested
+        logger.info({ author: authorName }, 'Processing author search via Hardcover ONLY');
+        return this.handleAuthorSearchWithHardcover(authorName);
       }
       
       // For title searches, proceed with normal torrent searching
@@ -514,43 +519,136 @@ export class AudiobookOrchestrator {
     };
   }
 
-  private handleAuthorSearchWithGoodreads(authorName: string) {
-    // Known authors with their Goodreads URLs
-    const knownAuthors: Record<string, { url: string; displayName: string }> = {
-      'bruce sentar': {
-        url: 'https://www.goodreads.com/author/list/19820966.Bruce_Sentar?utf8=✓&sort=original_publication_year',
-        displayName: 'Bruce Sentar'
-      },
-      'anne rice': {
-        url: 'https://www.goodreads.com/author/list/7577.Anne_Rice?utf8=✓&sort=original_publication_year',
-        displayName: 'Anne Rice'
-      },
-      'william d. arand': {
-        url: 'https://www.goodreads.com/author/list/14905104.William_D_Arand?utf8=✓&sort=original_publication_year',
-        displayName: 'William D. Arand'
-      },
-      'will wight': {
-        url: 'https://www.goodreads.com/author/list/7125278.Will_Wight?utf8=✓&sort=original_publication_year',
-        displayName: 'Will Wight'
-      }
-    };
-
-    // Normalize the author name for lookup
-    const normalizedAuthor = authorName.toLowerCase().trim();
-    logger.info({ authorName, normalizedAuthor }, 'Processing Goodreads author search');
-
-    // Check if we have a known author
-    const knownAuthor = knownAuthors[normalizedAuthor];
+  /**
+   * Detects if the request should be treated as an author search
+   * Checks multiple patterns to identify author-only searches
+   */
+  private detectAuthorSearch(request: any): boolean {
+    // Traditional pattern: empty title, valid author
+    if ((!request.title || !request.title.trim()) && 
+        request.author && request.author !== 'Unknown') {
+      return true;
+    }
     
-    if (knownAuthor) {
-      logger.info({ authorName: knownAuthor.displayName, url: knownAuthor.url }, 'Found exact author match');
+    // New pattern: title field contains author name (no book title keywords)
+    if (request.title && request.author === 'Unknown') {
+      const title = request.title.toLowerCase().trim();
       
+      // Common book titles that should NEVER be treated as author searches
+      const knownBookTitles = [
+        'dune', 'foundation', 'the hobbit', 'lotr', 'lord of the rings',
+        'harry potter', 'game of thrones', 'mistborn', 'stormlight',
+        'wheel of time', 'narnia', 'ender', 'hitchhiker', 'neuromancer',
+        'brave new world', '1984', 'fahrenheit', 'gatsby', 'mockingbird',
+        'pride and prejudice', 'jane eyre', 'wuthering heights'
+      ];
+      
+      // If it's a known book title, definitely not an author search
+      if (knownBookTitles.some(bookTitle => title.includes(bookTitle))) {
+        return false;
+      }
+      
+      // Check for obvious book keywords that indicate this is a title, not author
+      const hasBookKeywords = /\b(book|novel|story|tale|chronicles?|series|saga|trilogy|volume|part|chapter|the|a|an|of|and|in|to|for)\b/i;
+      if (hasBookKeywords.test(title)) {
+        return false;
+      }
+      
+      // Single word titles are likely book titles, not author names
+      if (!title.includes(' ')) {
+        return false;
+      }
+      
+      // Must be at least 2 words to potentially be an author name
+      const words = title.split(/\s+/);
+      if (words.length < 2) {
+        return false;
+      }
+      
+      // Check for common author name patterns (must be 2+ words)
+      const commonAuthorPatterns = [
+        /^[a-z]+\s+[a-z]+$/i,                    // First Last
+        /^[a-z]+\s+[a-z]\.\s*[a-z]+$/i,          // First M. Last
+        /^[a-z]\.\s*[a-z]\.\s*[a-z]+$/i,         // F. M. Last
+        /^[a-z]+\s+[a-z]+\s+[a-z]+$/i,           // First Middle Last
+        /^[a-z]+\s+[a-z]\.\s*[a-z]\.\s*[a-z]+$/i // First M. L. Last
+      ];
+      
+      // Only consider it an author search if it matches a name pattern AND doesn't look like a title
+      const matchesNamePattern = commonAuthorPatterns.some(pattern => pattern.test(title));
+      
+      // If it matches a name pattern, it's likely an author search
+      // We already filtered out known book titles and book keywords above
+      return matchesNamePattern;
+    }
+    
+    return false;
+  }
+
+  private async handleAuthorSearchWithHardcover(authorName: string) {
+    logger.info({ authorName }, 'Processing author search via Hardcover ONLY');
+    
+    try {
+      // Use ONLY Hardcover for author search as requested
+      const hardcoverBooks = await findBooksByAuthor(authorName);
+      
+      if (!hardcoverBooks || hardcoverBooks.length === 0) {
+        return {
+          intent: 'AUTHOR_SEARCH' as const,
+          confidence: 0.8,
+          seed_book: {
+            title: '',
+            author: authorName,
+            series: '',
+            isbn: '',
+            publisher: '',
+            year: '',
+            audience: 'adult',
+            format: 'search',
+            genre: '',
+            subgenres: [],
+            themes: [],
+            tone_style: [],
+            notable_features: []
+          },
+          similarity_rules_applied: {
+            matched_axes: ['author'],
+            min_required_axes: 1
+          },
+          filters: {
+            audience_lock: false,
+            format_lock: false,
+            exclude: []
+          },
+          clarifying_question: `I couldn't find any books by "${authorName}" in Hardcover. Please check the author's name or try a different spelling.`,
+          results: [],
+          post_prompt: ''
+        };
+      }
+
+      // Convert Hardcover results to the expected format
+      const results = hardcoverBooks.map(book => ({
+        title: book.title,
+        author: book.author,
+        genre: 'book',
+        subgenre: book.series || '',
+        audience: 'adult',
+        format: 'book',
+        why_similar: book.series ? `Part of ${book.series}` : 'By this author',
+        similarity_axes: ['author', book.series ? 'series' : 'standalone'].filter(Boolean)
+      }));
+
+      logger.info({ 
+        authorName, 
+        resultCount: results.length 
+      }, 'Hardcover author search completed successfully');
+
       return {
         intent: 'AUTHOR_BIBLIOGRAPHY' as const,
         confidence: 1.0,
         seed_book: {
           title: '',
-          author: knownAuthor.displayName,
+          author: authorName,
           series: '',
           isbn: '',
           publisher: '',
@@ -572,20 +670,17 @@ export class AudiobookOrchestrator {
           format_lock: false,
           exclude: []
         },
-        clarifying_question: `Here's the full list of books by ${knownAuthor.displayName} on Goodreads:\n${knownAuthor.url}`,
-        results: [],
-        post_prompt: ''
+        clarifying_question: '',
+        results: results,
+        post_prompt: `Found ${results.length} books by ${authorName} from Hardcover. Pick a number to search for that title as an audiobook.`
       };
-    } else {
-      // Fallback to Goodreads search
-      const searchQuery = authorName.replace(/\s+/g, '+').replace(/[^a-zA-Z0-9+]/g, '');
-      const searchUrl = `https://www.goodreads.com/search?q=${searchQuery}&search_type=authors`;
       
-      logger.info({ authorName, searchUrl }, 'Using Goodreads search fallback');
+    } catch (error: any) {
+      logger.error({ error: error.message, authorName }, 'Hardcover author search failed');
       
       return {
         intent: 'AUTHOR_SEARCH' as const,
-        confidence: 0.8,
+        confidence: 0.5,
         seed_book: {
           title: '',
           author: authorName,
@@ -610,7 +705,7 @@ export class AudiobookOrchestrator {
           format_lock: false,
           exclude: []
         },
-        clarifying_question: `I couldn't find an exact match, but here's what I found on Goodreads:\n${searchUrl}`,
+        clarifying_question: `I'm having trouble searching for books by "${authorName}" right now. Please try again in a moment.`,
         results: [],
         post_prompt: ''
       };

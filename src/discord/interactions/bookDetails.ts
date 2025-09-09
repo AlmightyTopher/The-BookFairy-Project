@@ -8,7 +8,7 @@ import {
   EmbedBuilder,
   Interaction,
 } from "discord.js";
-import { getBookDetails, getBookCoverUrl, type BookMeta } from "../../integrations/hardcover/client";
+import { getEnhancedBookDetails, getBookCoverUrl, type BookMeta } from "../../integrations/hardcover/service";
 import { searchGoogleBooks } from "../../integrations/googlebooks/client";
 import { requestDownload } from "../../services/downloads";
 import { showMainMenu } from "../ui/mainMenu";
@@ -48,7 +48,7 @@ async function handleView(interaction: ButtonInteraction, id: string) {
   console.log("[bookDetails] fetching details for:", meta.title, "by", meta.author);
 
   // Pass 1: exact
-  let details = await getBookDetails(meta).catch((e) => {
+  let details = await getEnhancedBookDetails(meta).catch((e: any) => {
     console.log("[bookDetails] Hardcover pass1 error:", e?.message ?? e);
     return null;
   });
@@ -57,7 +57,7 @@ async function handleView(interaction: ButtonInteraction, id: string) {
   if (!details) {
     const bare = { ...meta, title: stripSubtitle(meta.title ?? "") };
     console.log("[bookDetails] pass2 with title:", bare.title);
-    details = await getBookDetails(bare).catch((e) => {
+    details = await getEnhancedBookDetails(bare).catch((e: any) => {
       console.log("[bookDetails] Hardcover pass2 error:", e?.message ?? e);
       return null;
     });
@@ -79,8 +79,8 @@ async function handleView(interaction: ButtonInteraction, id: string) {
     .setFields(fields)
     .setFooter({ text: "Want me to grab it for you?" });
 
-  // Pick best cover: details.coverUrl → direct lookup → none
-  let coverUrl: string | undefined = details?.coverUrl ?? undefined;
+  // Pick best cover: details.imageUrl → direct lookup → none
+  let coverUrl: string | undefined = details?.imageUrl ?? undefined;
   if (!coverUrl) {
     coverUrl = await getBookCoverUrl(meta).catch(() => undefined);
     if (!coverUrl && details?.title) {

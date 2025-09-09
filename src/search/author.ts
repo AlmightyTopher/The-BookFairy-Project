@@ -1,5 +1,6 @@
-import { searchBooksByAuthor } from "../integrations/google/books";
-import { openLibrarySearchByAuthor } from "../integrations/openlibrary/search";
+import { searchBooksByAuthor, type GBook } from "../integrations/google/books";
+import { openLibrarySearchByAuthor, type OLAuthorResult } from "../integrations/openlibrary/search";
+import { getBooksByAuthor, searchAuthors, type BookDetails } from "../integrations/hardcover/service";
 
 export type SortKey =
   | "title_asc" | "title_desc"
@@ -19,14 +20,74 @@ export type BookMeta = {
 type Candidate = {
   title: string; author: string; year?: string; isbn10?: string; isbn13?: string;
   hasDescription: boolean; hasThumb: boolean; rating?: number; ratingVotes?: number;
-  source: "gbooks" | "openlibrary";
+  source: "hardcover" | "gbooks" | "openlibrary";
 };
 
 const cache = new Map<string, { ts: number; items: BookMeta[] }>();
 const TTL = 24 * 60 * 60 * 1000;
 
+// Helper functions to convert different source types to Candidate
+function hardcoverToCandidate(book: BookDetails, author: string): Candidate {
+  return {
+    title: book.title,
+    author: book.authors[0] || author,
+    year: undefined, // BookDetails doesn't include release date
+    isbn13: book.isbn13 || undefined,
+    hasDescription: !!book.description,
+    hasThumb: !!book.imageUrl,
+    rating: undefined, // Hardcover doesn't expose rating in BookDetails
+    ratingVotes: undefined,
+    source: "hardcover"
+  };
+}
+
+// Enhanced function to preserve rich Hardcover data for title selection
+function hardcoverToBookMeta(book: BookDetails, author: string): BookMeta {
+  return {
+    title: book.title,
+    author: book.authors[0] || author,
+    series: book.seriesName ? `${book.seriesName}${book.seriesNumber ? ` #${book.seriesNumber}` : ''}` : undefined,
+    isbn: book.isbn13 || undefined,
+    year: undefined, // BookDetails doesn't include release date from Hardcover API
+    rating: undefined, // Hardcover rating not exposed in BookDetails
+    ratingVotes: undefined
+  };
+}
+
+function gbooksToCandidate(book: GBook): Candidate {
+  return {
+    title: book.title,
+    author: book.authors[0] || "",
+    year: book.publishedYear?.toString(),
+    isbn13: book.meta.isbn?.length === 13 ? book.meta.isbn : undefined,
+    isbn10: book.meta.isbn?.length === 10 ? book.meta.isbn : undefined,
+    hasDescription: !!book.pageCount, // Use pageCount as proxy for detailed info
+    hasThumb: !!book.thumbnail,
+    rating: book.averageRating,
+    ratingVotes: book.ratingsCount,
+    source: "gbooks"
+  };
+}
+
+function openlibToCandidate(book: OLAuthorResult): Candidate {
+  return {
+    title: book.title,
+    author: book.author,
+    year: book.year,
+    isbn13: book.isbn13,
+    isbn10: book.isbn10,
+    hasDescription: book.hasDescription,
+    hasThumb: book.hasThumb,
+    rating: book.rating,
+    ratingVotes: book.ratingVotes,
+    source: "openlibrary"
+  };
+}
+
 function quality(c: Candidate) {
-  return (c.hasDescription ? 3 : 0) + (c.hasThumb ? 2 : 0) + ((c.isbn13 || c.isbn10) ? 2 : 0) + (c.year ? 1 : 0) + (c.source === "gbooks" ? 1 : 0) + (c.rating ? 1 : 0);
+  // Give Hardcover higher priority, then Google Books, then OpenLibrary
+  const sourceBonus = c.source === "hardcover" ? 3 : c.source === "gbooks" ? 1 : 0;
+  return (c.hasDescription ? 3 : 0) + (c.hasThumb ? 2 : 0) + ((c.isbn13 || c.isbn10) ? 2 : 0) + (c.year ? 1 : 0) + sourceBonus + (c.rating ? 1 : 0);
 }
 
 function sortItems(items: BookMeta[], key: SortKey) {
@@ -60,30 +121,23 @@ export async function findBooksByAuthor(
     return sortItems(hit.items, sort).slice(0, max);
   }
 
-  const [ga, ob] = await Promise.allSettled([
-    searchBooksByAuthor(author, { limit: 40 }),
-    openLibrarySearchByAuthor(author, { max: 50, lang })
-  ]);
-  const list: Candidate[] = [];
-  if (ga.status === "fulfilled") list.push(...(ga.value.items ?? []));
-  if (ob.status === "fulfilled") list.push(...ob.value);
+  // Use ONLY Hardcover for author search as requested
+  const hardcoverBooks: BookDetails[] = [];
+  
+  try {
+    // Get books from Hardcover only
+    const hcResults = await getBooksByAuthor(author, max);
+    hardcoverBooks.push(...hcResults);
+    
+    // Convert all Hardcover results to BookMeta format with rich metadata preserved
+    const items: BookMeta[] = hcResults.map(book => hardcoverToBookMeta(book, author));
 
-  const merged = new Map<string, Candidate>();
-  for (const c of list) {
-    const k = c.title.toLowerCase().replace(/\s+/g, " ").trim();
-    const prev = merged.get(k);
-    if (!prev || quality(c) > quality(prev)) merged.set(k, c);
+    cache.set(key, { ts: now, items });
+    return sortItems(items, sort).slice(0, max);
+    
+  } catch (error) {
+    console.error('Hardcover author search failed:', error);
+    // Return empty array if Hardcover fails, as requested to use ONLY Hardcover
+    return [];
   }
-
-  const items: BookMeta[] = [...merged.values()].map(c => ({
-    title: c.title,
-    author: c.author,
-    year: c.year,
-    isbn: c.isbn13 ?? c.isbn10,
-    rating: c.rating,
-    ratingVotes: c.ratingVotes
-  }));
-
-  cache.set(key, { ts: now, items });
-  return sortItems(items, sort).slice(0, max);
 }

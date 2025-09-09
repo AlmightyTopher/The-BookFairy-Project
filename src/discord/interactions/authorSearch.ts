@@ -38,9 +38,29 @@ async function compose(authorQuery: string, sort: SortKey, page: number) {
   const results = await findBooksByAuthor(authorQuery, { sort, max: 50, lang: "en" });
   const total = results.length;
   const slice = pageSlice(results, page);
-  const lines = slice.map((m, idx) =>
-    `${idx + 1}. ${m.title}${m.year ? ` (${m.year})` : ""} by ${m.author}${typeof m.rating === "number" ? ` — ★ ${m.rating.toFixed(1)}` : ""}`
-  );
+  const lines = slice.map((m, idx) => {
+    let line = `${idx + 1}. **${m.title}**`;
+    
+    // Add series information if available (from Hardcover)
+    if (m.series) {
+      line += ` *(${m.series})*`;
+    }
+    
+    // Add year if available
+    if (m.year) {
+      line += ` (${m.year})`;
+    }
+    
+    // Add author
+    line += ` by ${m.author}`;
+    
+    // Add rating if available
+    if (typeof m.rating === "number") {
+      line += ` — ★ ${m.rating.toFixed(1)}`;
+    }
+    
+    return line;
+  });
   return { results, total, slice, lines };
 }
 
