@@ -17,6 +17,7 @@ import { downloadMonitor } from './services/download-monitor';
 import { registerBookDetailHandlers } from './discord/interactions/bookDetails';
 import { registerAuthorSearchHandlers } from './discord/interactions/authorSearch';
 import { isInAuthorSession } from './discord/interactions/authorSearch';
+import { validateEnvironment, testConnections, emitBlockingChecklist } from './lib/env-validator';
 
 const client = new Client({
   intents: [
@@ -115,8 +116,48 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-client.login(config.discord.token).catch((error) => {
-  logger.error('Failed to start bot:', error);
+// Startup validation (P0.1, P0.2)
+async function startupValidation() {
+  logger.info('Running startup validation...');
+  
+  // Phase 0.1: Environment validation
+  const envValidation = validateEnvironment();
+  if (!envValidation.valid) {
+    logger.error('❌ Environment validation failed');
+    emitBlockingChecklist(envValidation);
+    process.exit(1);
+  }
+  
+  logger.info('✅ Environment validation passed');
+  
+  // Show warnings for optional variables
+  if (envValidation.warnings.length > 0) {
+    envValidation.warnings.forEach(warning => logger.warn(warning));
+  }
+  
+  // Test connections
+  logger.info('Testing external service connections...');
+  const connectionTests = await testConnections();
+  
+  if (!connectionTests.overall) {
+    logger.error('❌ Connection tests failed:');
+    connectionTests.errors.forEach(error => logger.error(`  ${error}`));
+    logger.error('Please check your configuration and network connectivity.');
+    process.exit(1);
+  }
+  
+  logger.info('✅ All connection tests passed');
+  logger.info('🎉 Startup validation completed successfully');
+}
+
+// Run validation before starting the bot
+startupValidation().then(() => {
+  client.login(config.discord.token).catch((error) => {
+    logger.error('Failed to start bot:', error);
+    process.exit(1);
+  });
+}).catch((error) => {
+  logger.error('Startup validation failed:', error);
   process.exit(1);
 });
 

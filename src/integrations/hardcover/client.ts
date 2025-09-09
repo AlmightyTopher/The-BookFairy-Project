@@ -283,6 +283,18 @@ export async function searchByTitle(title: string) {
 // Exports a stable shape used by tests and downstream flows.
 // ───────────────────────────────────────────────────────────────────────────────
 
+export interface BasicBook {
+  id: string;
+  title: string;
+  authors: string[];
+  series?: string;
+  seriesNumber?: number;
+  hasAudiobook?: boolean;
+  coverUrl?: string;
+  year?: number;
+  isbn?: string;
+}
+
 export type NormalizedBook = {
   title: string;
   authors: string[];
