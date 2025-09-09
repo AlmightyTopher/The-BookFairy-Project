@@ -1,0 +1,230 @@
+
+## `src/lib/pagination.ts`  (T013)
+
+```ts
+// src/lib/pagination.ts
+export type PageResult<T> = {
+  items: T[];
+  page: number;
+  totalPages: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+  label: string; // "Page X of Y"
+};
+
+export function paginate<T>(items: T[], page: number, perPage = 5): PageResult<T> {
+  const safePer = Math.max(1, perPage | 0);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / safePer));
+  const clamped = Math.min(Math.max(1, page | 0), totalPages);
+  const start = (clamped - 1) * safePer;
+  const end = start + safePer;
+
+  const slice = items.slice(start, end);
+  return {
+    items: slice,
+    page: clamped,
+    totalPages,
+    hasPrev: clamped > 1,
+    hasNext: clamped < totalPages,
+    label: `Page ${clamped} of ${totalPages}`,
+  };
+}
+```
+
+## `src/discord/commands/bookfairy.ts`  (T016)
+
+```ts
+// src/discord/commands/bookfairy.ts
+// Pure object builder for tests; no discord.js dependency.
+export function buildMainMenu() {
+  return {
+    command: "/bookfairy",
+    buttons: [
+      { id: "bf:audiobooks", label: "Audiobooks" },
+      { id: "bf:title",      label: "By Title" },
+      { id: "bf:author",     label: "By Author" },
+      { id: "bf:status",     label: "Status" },
+      { id: "bf:help",       label: "Help" },
+    ],
+  };
+}
+```
+
+## `src/integrations/prowlarr/client.ts`  (T018 – minimal contract)
+
+```ts
+// src/integrations/prowlarr/client.ts
+// Minimal contract to satisfy tests. Real client can wire to your existing src/clients/prowlarr-client.ts later.
+
+export type SearchOptions = { query: string; [k: string]: unknown };
+
+export function toSearchOptions(q: string): SearchOptions {
+  return { query: String(q ?? "").trim() };
+}
+
+export async function relaySearch(
+  _opts: SearchOptions,
+  ctx?: { correlationId?: string; [k: string]: unknown }
+): Promise<{ ok: boolean; meta?: { correlationId?: string } }> {
+  // Tests mock this; we keep a predictable shape.
+  return { ok: true, meta: { correlationId: ctx?.correlationId } };
+}
+```
+
+## `src/discord/interactions/audiobooks.ts`  (T023)
+
+```ts
+// src/discord/interactions/audiobooks.ts
+import { paginate } from "../../lib/pagination";
+import { toSearchOptions, relaySearch } from "../../integrations/prowlarr/client";
+
+// Mango curated service (mocked in tests)
+import * as Mango from "../../integrations/mango/service";
+
+// super lightweight id gen; keep it Node/TS friendly
+function cid() {
+  // dumb but stable; good enough for tests
+  return Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
+}
+
+type CuratedItem = { title: string; author?: string; year?: number; link?: string };
+type BuildParams = { genre: string; timeframe: string };
+
+export async function buildAudiobooksFlow(params: BuildParams) {
+  const curated: CuratedItem[] = await Mango.fetchCurated(params.genre, params.timeframe);
+  const items = curated.map(c => ({
+    title: c.title,
+    author: c.author,
+    year: c.year,
+    link: c.link,
+    label: c.author ? `${c.title} — ${c.author}` : c.title,
+  }));
+  const page = paginate(items, 1, 5);
+  return { page };
+}
+
+type ConfirmSelection = { title: string; author?: string };
+type Ctx = { guildId: string; userId?: string };
+
+export async function confirmAudiobook(selection: ConfirmSelection, ctx: Ctx) {
+  const correlationId = cid();
+  const query = [selection.title, selection.author].filter(Boolean).join(" ");
+  const opts = toSearchOptions(query);
+
+  const res = await relaySearch(opts, { ...ctx, correlationId });
+
+  return {
+    ok: !!res?.ok,
+    meta: { correlationId },
+    payload: opts, // tests assert query presence here
+  };
+}
+```
+
+## `src/discord/interactions/title-search.ts`  (T024)
+
+```ts
+// src/discord/interactions/title-search.ts
+import { paginate } from "../../lib/pagination";
+import * as HC from "../../integrations/hardcover/client"; // mocked in tests
+import { toSearchOptions, relaySearch } from "../../integrations/prowlarr/client";
+
+type BuildParams = { query: string };
+
+export async function buildTitleSearch({ query }: BuildParams) {
+  const res = await (HC as any).searchByTitle(query);
+  // tests' mock returns { books: [{ title, authors: [..], year, isbn }...] }
+  const items = (res?.books ?? []).map((b: any) => ({
+    title: b.title,
+    authors: Array.isArray(b.authors) ? b.authors : (b.authors ?? []).map((a: any) => a?.name).filter(Boolean),
+    year: b.year ?? b?.editions?.[0]?.year,
+    isbn: b.isbn ?? b?.editions?.[0]?.isbn13,
+    label: `${b.title}${b.year ? ` (${b.year})` : ""}`,
+  }));
+
+  const page = paginate(items, 1, 5);
+  return { page };
+}
+
+type ConfirmSelection = { title: string; authors?: string[] };
+type Ctx = { guildId: string; userId?: string };
+
+export async function confirmTitle(sel: ConfirmSelection, ctx: Ctx) {
+  const correlationId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const query = [sel.title, ...(sel.authors ?? [])].join(" ").trim();
+  const opts = toSearchOptions(query);
+  const res = await relaySearch(opts, { ...ctx, correlationId });
+
+  return { ok: !!res?.ok, meta: { correlationId }, payload: opts };
+}
+```
+
+## `src/discord/interactions/author-search.ts`  (T025)
+
+```ts
+// src/discord/interactions/author-search.ts
+import { paginate } from "../../lib/pagination";
+import * as HC from "../../integrations/hardcover/client"; // mocked in tests
+import { toSearchOptions, relaySearch } from "../../integrations/prowlarr/client";
+
+type BuildParams = { author: string };
+
+export async function buildAuthorSearch({ author }: BuildParams) {
+  const res = await (HC as any).searchByAuthor(author);
+  const works: Array<{ series?: string; title: string; year?: number }> = res?.works ?? [];
+
+  // Group by series (null/undefined go under "Standalone")
+  const grouped: Record<string, Array<{ title: string; year?: number }>> = {};
+  for (const w of works) {
+    const key = w.series || "Standalone";
+    grouped[key] ||= [];
+    grouped[key].push({ title: w.title, year: w.year });
+  }
+
+  const flat = works.map(w => ({
+    series: w.series || "Standalone",
+    title: w.title,
+    year: w.year,
+    label: w.series ? `${w.title} — ${w.series} (${w.year ?? "n/a"})` : `${w.title} (${w.year ?? "n/a"})`,
+  }));
+
+  const page = paginate(flat, 1, 5);
+  return { grouped, page };
+}
+
+type ConfirmSelection = { series?: string; title: string };
+type Ctx = { guildId: string; userId?: string };
+
+export async function confirmAuthorWork(sel: ConfirmSelection, ctx: Ctx) {
+  const correlationId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const query = [sel.title, sel.series].filter(Boolean).join(" ");
+  const opts = toSearchOptions(query);
+  const res = await relaySearch(opts, { ...ctx, correlationId });
+  return { ok: !!res?.ok, meta: { correlationId }, payload: opts };
+}
+```
+
+## `src/discord/interactions/status.ts`  (T026)
+
+```ts
+// src/discord/interactions/status.ts
+import { getRecentRelays } from "../../lib/relay-store"; // tests mock this
+
+function ageFrom(ts: number) {
+  const ms = Math.max(0, Date.now() - ts);
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
+export async function buildStatusView() {
+  const relays = getRecentRelays() ?? [];
+  const items = relays.slice(0, 5).map(r => ({
+    id: r.id,
+    state: r.state,
+    age: ageFrom(r.at),
+  }));
+  return { items };
+}
+```

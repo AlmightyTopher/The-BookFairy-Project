@@ -216,3 +216,81 @@ export async function getBookDetails(opts: BookMeta): Promise<BookDetails | null
     return null;
   }
 }
+
+/** Public: search by author (required by interaction handlers) */
+export async function searchByAuthor(author: string) {
+  if (!HC_TOKEN) return { works: [] };
+  try {
+    const query = /* GraphQL */ `
+      query ($q: String!, $page: Int!, $per: Int!) {
+        search(query: $q, query_type: "Book", page: $page, per_page: $per) {
+          results { id title authors { name } series { name } publication_year }
+        }
+      }
+    `;
+    const data = await gql<{ search: { results?: Array<{ 
+      id: number; 
+      title: string; 
+      authors?: Array<{ name: string }>;
+      series?: Array<{ name: string }>;
+      publication_year?: number;
+    }> } }>(query, { q: author, page: 1, per: 25 });
+    
+    const works = (data?.search?.results ?? []).map(book => ({
+      title: book.title,
+      series: book.series?.[0]?.name,
+      year: book.publication_year
+    }));
+    
+    return { works };
+  } catch {
+    return { works: [] };
+  }
+}
+
+/** Public: search by title (required by interaction handlers) */
+export async function searchByTitle(title: string) {
+  if (!HC_TOKEN) return { books: [] };
+  try {
+    const query = /* GraphQL */ `
+      query ($q: String!, $page: Int!, $per: Int!) {
+        search(query: $q, query_type: "Book", page: $page, per_page: $per) {
+          results { id title authors { name } publication_year }
+        }
+      }
+    `;
+    const data = await gql<{ search: { results?: Array<{ 
+      id: number; 
+      title: string; 
+      authors?: Array<{ name: string }>;
+      publication_year?: number;
+    }> } }>(query, { q: title, page: 1, per: 25 });
+    
+    const books = (data?.search?.results ?? []).map(book => ({
+      title: book.title,
+      authors: (book.authors ?? []).map(a => a.name).filter(Boolean),
+      year: book.publication_year
+    }));
+    
+    return { books };
+  } catch {
+    return { books: [] };
+  }
+}
+
+/** Public: normalize Hardcover results for BookFairy (required by contract tests) */
+export function normalizeHardcoverResults(data: { books: Array<any> }): Array<{
+  title: string;
+  authors: string[];
+  year?: number;
+  isbn?: string;
+}> {
+  return (data.books ?? []).map(book => ({
+    title: book.title || "",
+    authors: Array.isArray(book.author_names) 
+      ? book.author_names.filter(Boolean)
+      : (book.authors ?? []).map((a: any) => a?.name || a).filter(Boolean),
+    year: book.year ?? book.editions?.[0]?.year,
+    isbn: book.isbn ?? book.editions?.[0]?.isbn_13,
+  }));
+}

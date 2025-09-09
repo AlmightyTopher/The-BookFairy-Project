@@ -21,34 +21,29 @@
           "on": "ByAuthor.Input"
         },
         {
-          "label": "Describe the Book",
+          "label": "Describe Book",
           "id": "search_describe_open", 
           "on": "DescribeBook.Input"
         },
         {
-          "label": "Browse Genres",
+          "label": "Browse Genre",
           "id": "browse_genres_open",
           "on": "Genre.Pick"
         },
         {
-          "label": "Audiobooks",
-          "id": "audiobooks_open",
-          "on": "Audiobooks.Menu"
+          "label": "New Chat",
+          "id": "home_new_chat",
+          "on": "Main"
         },
         {
-          "label": "More Options",
-          "id": "more_options_open",
+          "label": "Other Commands",
+          "id": "other_cmds_open",
           "on": "Other.Menu"
         },
         {
-          "label": "Back",
-          "id": "home_back",
-          "on": "Main"
-        },
-        {
-          "label": "Next",
-          "id": "home_next",
-          "on": "Main"
+          "label": "Help",
+          "id": "help",
+          "on": "Help.Menu"
         }
       ],
       "globals": true
