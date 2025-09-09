@@ -1,78 +1,75 @@
-Refactor/cleanup request for BookFairy:
+Create a **Menu & Interaction Tree** for the BookFairy Discord bot — **repository-agnostic** (assume you know nothing about file paths).
 
-Goal: Identify and safely remove dead files, legacy menu flows, and unused code while enforcing the current spec and constitutional rules. Maintain all existing user-facing functionality.
+**Goal**
+Discover and document exactly how the UI looks and behaves in Discord: the single slash entrypoint, all buttons/menus/states, and every transition. Produce a full tree with stable node IDs and explain how I can request precise changes later.
 
-What to do:
+**Repository discovery (no assumptions)**
 
-Inventory + Reachability
+1. **Scan for Discord surface area**
 
-Build a map of commands, handlers, flows, and utilities actually referenced at runtime.
+   * Grep for likely markers: `SlashCommandBuilder`, `client.on('interactionCreate')`, `REST.put(Routes.applicationCommands`, `discord.js`, `@discordjs/builders`, component `customId`, `MessageActionRow/ButtonBuilder/StringSelectMenuBuilder`, “pagination”, “Page”, “Next”, “Prev”.
+   * Enumerate: slash commands, component handlers (by `customId`), router modules, middleware, and any constants controlling pagination.
+2. **Find specs/plans if they exist**
 
-Detect unreachable files, unused exports, legacy slash/menus not reachable from the single /bookfairy entrypoint, and orphaned tests/docs.
+   * Look for `specs/**`, `docs/**`, `README*`, `CONTRIBUTION*`. If found, prefer current spec over code when they disagree, but list the mismatch.
+3. **Trace reachability**
 
-Flag anything that violates the spec’s constitutional rules: single entrypoint, no DM delivery, relay-only via Prowlarr/Readarr/qBittorrent, 5-item pagination.
+   * Build a call/route map from the entrypoint(s) → handlers → services.
+   * Identify unreachable/legacy menus or flows (present in repo but not reachable). Mark them as “Legacy/Unlinked”.
 
-Propose diffs
+**Constraints (must enforce regardless of what code currently does)**
 
-Prepare a short list of candidate removals/refactors grouped by risk:
-A) Safe deletes (truly dead)
-B) Safe rewires (rename/move/update imports)
-C) Risky (behavior-adjacent; needs extra tests)
+* Single slash entrypoint (`/bookfairy`) with button routing only.
+* No DM file delivery.
+* Relay-only via Prowlarr/Readarr/qBittorrent.
+* 5-item pagination everywhere.
+* Don’t move/change secrets.
+* Preserve current user-visible behavior.
 
-For each candidate, include: file(s), why it’s safe (no refs / superseded), and what tests cover the surviving path.
+**Deliverable (write the doc even if you had to infer)**
+Write **`specs/ui-map.md`** (create directory if missing) containing:
 
-Apply minimal changes
+1. **Overview** (2 short paragraphs): What appears after `/bookfairy`, how choices branch, and the constitutional rules you enforced.
+2. **ASCII Interaction Tree** from `/bookfairy` downward. Include nodes for:
 
-Implement the A) Safe deletes and B) Safe rewires first. Keep changes surgical: no redesigns, no new features.
+   * **Audiobooks** → Genre → Timeframe → Results (paginated) → Confirm → Relay
+   * **By Title** → Results (paginated) → Confirm → Relay
+   * **By Author** → Results (paginated/grouped) → Confirm → Relay
+   * **Status** (latest 5)
+   * **Help**
+3. **Node Table** (markdown) with columns:
 
-Update imports, exports, and docs to remove dangling references. Do not change public behavior, command names, pagination size, or relay behavior.
+   * `ID` (stable, e.g., `BF-UI-ROOT`, `BF-UI-AUDIOBOOKS-GENRE`, `BF-UI-RESULTS-PAGE`)
+   * `User Label` (exact Discord text)
+   * `Component` (slash | button | select | embed)
+   * `Paginated?` (Yes/No; if Yes, fixed 5 per page)
+   * `Next States` (IDs)
+   * `Back/Cancel` behavior
+   * `Discovered Handler` (best guess path or “TBD”)
+4. **Pagination Rules**: fixed 5 per page, how Next/Prev work, “Page X of Y” copy, and disabled-button behavior on edges.
+5. **Validation & Errors**: empty results, relay failure, rate limits, missing env (test mode).
+6. **Telemetry Hooks**: where correlation IDs are produced/logged in the flow.
+7. **Change Request Cookbook** (so I can ask for precise edits):
 
-Run checks
+   * Template: “Update `<ID>`: change **Label** to ‘X’, **Order** under parent `<PARENT-ID>` to N, **Target Handler** to `path/to/file.ts`. Also update affected `Next States` to \[…].”
+   * Examples: rename a button; insert a new timeframe under Audiobooks; (if asked to change page size ≠ 5, respond “blocked by constitution”).
+8. **Open Questions**: list any ambiguous labels/paths and propose defaults.
 
-Run typecheck, lint, and the full test suite.
+**Quality bar**
 
-If anything fails, automatically revert just the offending hunk and move it from A/B → C with a note why.
+* Be explicit about exact labels users see.
+* If multiple candidates exist (e.g., two “results” handlers), pick the one actually wired from the entrypoint; mark others “Legacy/Unlinked”.
+* No code changes in this pass — documentation only.
 
-Single cleanup PR
+**After writing**
 
-Create one feature branch (e.g., cleanup/legacy-purge-YYYYMMDD).
+* Add a short **Diff Plan** section: list mismatches between doc vs. code/spec (labels, missing handlers, extra legacy menus). For each mismatch, propose a minimal follow-up: rename, rewire, or delete (no refactors).
 
-Use small, logical commits (inventory → deletes → rewires → docs).
+**If repo has no Discord code**
 
-PR title: “Cleanup: remove dead files, legacy flows, and unused code (no behavior change)”.
+* Produce the same doc from the spec alone, clearly marking every handler path as “TBD”, and include a “Scaffold Needed” list.
 
-PR body:
+**Output**
 
-What was removed/rewired and why (with file lists).
-
-Proof of safety: links to tests, coverage or call-graph notes.
-
-Confirmation of constitutional compliance.
-
-Test/lint/typecheck results summary.
-
-Constraints (do not violate):
-
-One Discord entrypoint with button routing only.
-
-No DM file delivery of any kind.
-
-Relay-only via Prowlarr/Readarr/qBittorrent.
-
-5-item pagination everywhere.
-
-Do not move or change how secrets are stored.
-
-Preserve repo structure and existing commands (npm run dev, npm test).
-
-Outputs I expect:
-
-A brief “Inventory & Plan” section (the proposed A/B/C groups).
-
-The actual diffs applied for A and B.
-
-Test + lint + typecheck results.
-
-A single ready-to-merge cleanup PR as described above.
-
-Assume “yes” for obviously safe deletes/rewires; ask once if anything is ambiguous or looks risky.
+* The full markdown in `specs/ui-map.md`.
+* A one-screen summary at the bottom: total nodes, paginated nodes, legacy/unlinked nodes, and any constitutional violations detected (with suggested fixes).
